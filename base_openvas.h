@@ -86,6 +86,16 @@ enum {
     MAX_SCHEDULE_LIST_SIZE = 256,
 };
 
+enum ICAL_DATE_REP_TYPE {
+    ICAL_DATE_NONE,
+    ICAL_DATE_ONCE,
+    ICAL_DATE_DAILY,
+    ICAL_DATE_WEEKLY,
+    ICAL_DATE_MONTHLY, 
+    
+    ICAL_DATE_END
+};
+
 
 extern const struct kb_operations *KBDefaultOperations;
 

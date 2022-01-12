@@ -33,101 +33,128 @@ int sendKbMsg(const char* key, const char* cmd, size_t len) {
     return ret;
 }
 
-int php_start_task(const char* input, int inputlen) {
+int php_start_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     int ret = 0;
-    int len = 0;
     struct php_key_task_param oParam;
-    char msg[MAX_MSG_SIZE + 1] = {0};
 
     do {
         ret = getPhpKeyTaskParam(input, &oParam);
         if (0 != ret) {
-            LOG_ERROR( "php_start_task| msg=check parameters error|" );
+            LOG_ERROR("php_start_task| msg=check parameters error|" );
             break;
         }
 
-        len = snprintf(msg, MAX_MSG_SIZE, "%s%s%s%s%s%s%s%s", 
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            "%s%s%s%s%s%s%s%s", 
             "start_task", OPENVAS_KB_DELIM,
             oParam.m_task_name, OPENVAS_KB_DELIM,
             oParam.m_task_id, OPENVAS_KB_DELIM,
             oParam.m_target_id, OPENVAS_KB_DELIM);
-        ret = sendKbMsg(OPENVAS_MSG_NAME, msg, (size_t)len);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, tmpbuf->m_buf, tmpbuf->m_size);
         if (0 != ret) { 
-            LOG_ERROR( "php_start_task| msg=send msg error|" );
+            LOG_INFO("php_start_task| taskname=%s| task_id=%s| target_id=%s|"
+                " msg=send msg error|",
+                oParam.m_task_name,
+                oParam.m_task_id,
+                oParam.m_target_id);
             break;
         }
+
+        LOG_INFO("php_start_task| taskname=%s| task_id=%s| target_id=%s|"
+            " msg=ok|",
+            oParam.m_task_name,
+            oParam.m_task_id,
+            oParam.m_target_id);
     } while (0);
 
     return ret;
 }
 
-int php_stop_task(const char* input, int inputlen) {
+int php_stop_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     int ret = 0;
-    int len = 0;
     struct php_key_task_param oParam;
-    char msg[MAX_MSG_SIZE + 1] = {0};
 
     do {
         ret = getPhpKeyTaskParam(input, &oParam);
         if (0 != ret) {
-            LOG_ERROR( "php_stop_task| msg=check parameters error|" );
+            LOG_ERROR("php_stop_task| msg=check parameters error|" );
             break;
         }
 
-        len = snprintf(msg, MAX_MSG_SIZE, "%s%s%s%s%s%s%s%s", 
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            "%s%s%s%s%s%s%s%s", 
             "stop_task", OPENVAS_KB_DELIM,
             oParam.m_task_name, OPENVAS_KB_DELIM,
             oParam.m_task_id, OPENVAS_KB_DELIM,
             oParam.m_target_id, OPENVAS_KB_DELIM);
-        ret = sendKbMsg(OPENVAS_MSG_NAME, msg, (size_t)len);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, tmpbuf->m_buf, tmpbuf->m_size);
         if (0 != ret) { 
-            LOG_ERROR( "php_stop_task| msg=send msg error|" );
+            LOG_INFO("php_stop_task| taskname=%s| task_id=%s| target_id=%s|"
+                " msg=send msg error|",
+                oParam.m_task_name,
+                oParam.m_task_id,
+                oParam.m_target_id);
             break;
         }
+
+        LOG_INFO("php_stop_task| taskname=%s| task_id=%s| target_id=%s|"
+            " msg=ok|",
+            oParam.m_task_name,
+            oParam.m_task_id,
+            oParam.m_target_id);
     } while (0);
 
     return ret;
 }
 
-int php_delete_task(const char* input, int inputlen) {
+int php_delete_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     int ret = 0;
-    int len = 0;
     struct php_key_task_param oParam;
-    char msg[MAX_MSG_SIZE + 1] = {0};
 
     do {
         ret = getPhpKeyTaskParam(input, &oParam);
         if (0 != ret) {
-            LOG_ERROR( "php_delete_task| msg=check parameters error|" );
+            LOG_ERROR("php_delete_task| msg=check parameters error|" );
             break;
         }
 
-        len = snprintf(msg, MAX_MSG_SIZE, "%s%s%s%s%s%s%s%s", 
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            "%s%s%s%s%s%s%s%s", 
             "delete_task", OPENVAS_KB_DELIM,
             oParam.m_task_name, OPENVAS_KB_DELIM,
             oParam.m_task_id, OPENVAS_KB_DELIM,
             oParam.m_target_id, OPENVAS_KB_DELIM);
-        ret = sendKbMsg(OPENVAS_MSG_NAME, msg, (size_t)len);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, tmpbuf->m_buf, tmpbuf->m_size);
         if (0 != ret) { 
-            LOG_ERROR( "php_delete_task| msg=send msg error|" );
+            LOG_ERROR("php_delete_task| taskname=%s| task_id=%s| target_id=%s|"
+                " msg=send msg error|",
+                oParam.m_task_name,
+                oParam.m_task_id,
+                oParam.m_target_id);
             break;
         }
+
+        LOG_INFO("php_delete_task| taskname=%s| task_id=%s| target_id=%s|"
+            " msg=ok|",
+            oParam.m_task_name,
+            oParam.m_task_id,
+            oParam.m_target_id);
     } while (0);
 
     return ret;
 }
 
-int php_create_task(const char* input, int inputlen) {
+int php_create_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     int ret = 0;
     int len = 0;
     int type = 0;
+    int schedule_type = 0;
     struct php_create_task_param oParam;
     regex_t reg;
     regmatch_t matchs[8];
-    char msg[MAX_MSG_SIZE] = {0};
-    char pattern[MAX_COMM_SIZE] = {0};
 
-    snprintf(pattern, MAX_BUFFER_SIZE, "^group=\"(%s)\"&groupname=\"(%s)\""
+    tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+        "^group=\"(%s)\"&groupname=\"(%s)\""
         "&taskname=\"(%s)\"&hosts=\"(%s)\""
         "&schdule_type=\"(%s)\"&schedule_time=\"(%s)\"&schedule_list=\"(%s)\"$",
         CUSTOM_GROUP_ID_PATTERN,
@@ -135,10 +162,10 @@ int php_create_task(const char* input, int inputlen) {
         GVM_NAME_PATTERN,
         CUSTOM_HOSTS_PATTERN,
         CUSTOM_SCHEDULE_TYPE_PATTERN,
-        CUSTOM_SCHEDULE_TIME_PATTERN,
+        CUSTOM_SCHEDULE_TIME_PATTERN_OR_NULL,
         CUSTOM_SCHEDULE_LIST_PATTERN);
 
-    ret = regcomp(&reg, pattern , REG_EXTENDED);
+    ret = regcomp(&reg, tmpbuf->m_buf , REG_EXTENDED);
     if (0 != ret) {
         LOG_ERROR("php_create_task| msg=compile error|" );
         return -1;
@@ -237,40 +264,52 @@ int php_create_task(const char* input, int inputlen) {
 
         ret = getGroupId(oParam.m_group_id, &type);
         if (0 != ret) {
-            LOG_ERROR( "php_create_task| group_id=%s| msg=invalid group id|", 
+            LOG_ERROR("php_create_task| group_id=%s| msg=invalid group id|", 
                 oParam.m_group_id);
             break;
         }
 
         ret = trimText(oParam.m_group_name);
         if (0 != ret) {
-            LOG_ERROR( "php_create_task| group_name=%s| msg=invalid group name|", 
+            LOG_ERROR("php_create_task| group_name=%s| msg=invalid group name|", 
                 oParam.m_group_name);
             break;
         }
 
         ret = escapeHosts(oParam.m_hosts);
         if (0 != ret) {
-            LOG_ERROR( "php_create_task| hosts=%s| msg=invalid hosts|", 
+            LOG_ERROR("php_create_task| hosts=%s| msg=invalid hosts|", 
                 oParam.m_hosts);
             break;
         }
         
         ret = chkHosts(oParam.m_hosts);
         if (0 != ret) {
-            LOG_ERROR( "php_create_task| hosts=%s| msg=invalid hosts|", 
+            LOG_ERROR("php_create_task| hosts=%s| msg=invalid hosts|", 
                 oParam.m_hosts);
             break;
         }
 
         ret = trimText(oParam.m_task_name);
         if (0 != ret) {
-            LOG_ERROR( "php_create_task| hosts=%s| msg=invalid taskname|", 
+            LOG_ERROR("php_create_task| hosts=%s| msg=invalid taskname|", 
                 oParam.m_task_name);
             break;
         }
+
+        schedule_type = atoi(oParam.m_schedule_type);
+        ret = chkScheduleParam(schedule_type, oParam.m_schedule_time, oParam.m_schedule_list);
+        if (0 != ret) {
+            LOG_ERROR("php_create_task| schedul_type=%s| schedul_time=%s|"
+                " schedul_list=%s| msg=invalid schedule parameters|", 
+                oParam.m_schedule_type, 
+                oParam.m_schedule_time,
+                oParam.m_schedule_list);
+            break;
+        }
         
-        len = snprintf(msg, MAX_MSG_SIZE, "%s%s%d%s%s%s%s%s%s%s%s%s%s%s%s%s", 
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            "%s%s%d%s%s%s%s%s%s%s%s%s%s%s%s%s", 
             "create_task", OPENVAS_KB_DELIM,
             type, OPENVAS_KB_DELIM,
             oParam.m_group_name, OPENVAS_KB_DELIM,
@@ -279,9 +318,9 @@ int php_create_task(const char* input, int inputlen) {
             oParam.m_schedule_type, OPENVAS_KB_DELIM,
             oParam.m_schedule_time, OPENVAS_KB_DELIM,
             oParam.m_schedule_list, OPENVAS_KB_DELIM);
-        ret = sendKbMsg(OPENVAS_MSG_NAME, msg, (size_t)len);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, tmpbuf->m_buf, tmpbuf->m_size);
         if (0 != ret) { 
-            LOG_ERROR( "php_create_task| group_id=%s| group_name=%s|"
+            LOG_ERROR("php_create_task| group_id=%s| group_name=%s|"
                 " task_name=%s| host=%s|"
                 " schedule_type=%s| schedule_time=%s| schedule_list=%s|"
                 " msg=send msg error|",
@@ -294,9 +333,43 @@ int php_create_task(const char* input, int inputlen) {
                 oParam.m_schedule_list);
             break;
         }
+
+        LOG_INFO("php_create_task| group_id=%s| group_name=%s|"
+            " task_name=%s| host=%s|"
+            " schedule_type=%s| schedule_time=%s| schedule_list=%s|"
+            " msg=ok|",
+            oParam.m_group_id,
+            oParam.m_group_name,
+            oParam.m_task_name,
+            oParam.m_hosts,
+            oParam.m_schedule_type,
+            oParam.m_schedule_time,
+            oParam.m_schedule_list);
     } while (0);
 
     regfree(&reg);
+
+    return ret;
+}
+
+int chkScheduleParam(int type, const char* schedule_time, const char* schedule_list) {
+    int ret = 0;
+
+    if (ICAL_DATE_NONE == type) {
+        if ('\0' != schedule_time[0] || '\0' != schedule_list[0]) {
+            ret = -1;
+        }
+    } else if (ICAL_DATE_ONCE == type || ICAL_DATE_DAILY == type) {
+        if ('\0' == schedule_time[0] || '\0' != schedule_list[0]) {
+            ret = -1;
+        }
+    } else if (ICAL_DATE_WEEKLY == type || ICAL_DATE_MONTHLY == type) {
+        if ('\0' == schedule_time[0] || '\0' == schedule_list[0]) {
+            ret = -1;
+        }
+    } else {
+        ret = -1;
+    }
 
     return ret;
 }
@@ -575,7 +648,7 @@ int escapeHosts(char* hosts) {
     char* psz = NULL;
     
     for (psz = hosts; *psz; ++psz) {
-        if (!isspace(*psz) && ',' != *psz) {
+        if (isdigit(*psz) || '/' == *psz || '.' == *psz || '-' == *psz) {
             hosts[cnt++] = *psz;
 
             if (isDelim) {

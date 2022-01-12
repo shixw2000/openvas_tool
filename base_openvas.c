@@ -337,6 +337,8 @@ void freeBuf(kb_buf_t buffer) {
     if (NULL != buffer->m_buf) {
         buffer->m_capacity = 0;
         buffer->m_size = 0;
+
+        free(buffer->m_buf);
         buffer->m_buf = NULL; 
     }
 }

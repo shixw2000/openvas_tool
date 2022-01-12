@@ -44,8 +44,8 @@ extern int isTaskChkTimeExpired(ListGvmTask_t task);
 
 extern int deleteTaskWhole(GvmDataList_t data, ListGvmTask_t task, kb_buf_t tmpbuf); 
 
-extern int gvm_create_schedule(const char* name, const char* firstRun,
-    enum ICAL_DATE_REP_TYPE type, const char* _list,
+extern int gvm_create_schedule(const char* name, enum ICAL_DATE_REP_TYPE type,
+    const char* firstRun, const char* _list,
     char uuid[], int maxlen,
     kb_buf_t tmpbuf, kb_buf_t outbuf);
 

@@ -34,14 +34,6 @@ enum GVM_TASK_CHK_TYPE {
     GVM_TASK_CHK_END
 }; 
 
-enum ICAL_DATE_REP_TYPE {
-    ICAL_DATE_ONCE,
-    ICAL_DATE_DAILY,
-    ICAL_DATE_WEEKLY,
-    ICAL_DATE_MONTHLY, 
-    
-    ICAL_DATE_END
-};
 
 struct gvm_target_info {
     char m_target_name[MAX_NAME_SIZE];

@@ -44,9 +44,8 @@ void flushStdin() {
 }
 
 int getLine(const char* promt, char line[]) { 
-    LOG_INFO("%s", promt);
-    
     flushStdin();
+    LOG_INFO("%s", promt);
     if (!ferror(stdin) && !feof(stdin)) {
         gets(line);
 
@@ -168,28 +167,31 @@ void test14() {
 
 void test04() {
     int ret = 0;
-    struct kb_buf input;
-    
-    ret = genBuf(MAX_CACHE_SIZE, &input);
+    struct kb_buf tmpbuf;
+    char cmd[1024] = "";
 
-    getLine("create task:\n", input.m_buf);
-    ret = php_create_task(input.m_buf, 0);
+    ret = genBuf(MAX_CACHE_SIZE, &tmpbuf);
+    
+    getLine("create task:\n", cmd);
+    ret = php_create_task(cmd, 0, &tmpbuf);
 } 
 
 void test05() {
     int ret = 0;
+    struct kb_buf tmpbuf;
     struct kb_buf input;
-    
+
+    ret = genBuf(MAX_CACHE_SIZE, &tmpbuf);
     ret = genBuf(MAX_CACHE_SIZE, &input);
 
     getLine("start task:\n", input.m_buf);
-    php_start_task(input.m_buf, 0);
+    php_start_task(input.m_buf, 0, &tmpbuf);
 
     getLine("stop task:\n", input.m_buf);
-    php_stop_task(input.m_buf, 0);
+    php_stop_task(input.m_buf, 0, &tmpbuf);
 
     getLine("delete task:\n", input.m_buf);
-    php_delete_task(input.m_buf, 0);    
+    php_delete_task(input.m_buf, 0, &tmpbuf);    
 }
 
 void test06() {

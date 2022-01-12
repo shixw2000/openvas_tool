@@ -36,13 +36,6 @@ static const int DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_END] = {
     60, // check deleted
 }; 
 
-static const char* DEF_ICALENDAR[ICAL_DATE_END] = {
-    "", // once
-    "RRULE:FREQ=DAILY",
-    "RRULE:FREQ=WEEKLY;BYDAY=",
-    "RRULE:FREQ=MONTHLY;BYMONTHDAY=",
-};
-
 int getNodeText(xmlDocPtr doc, xmlNodePtr node, char* buf, int maxlen);
 
 int initLibXml() {
@@ -346,14 +339,24 @@ enum GVM_TASK_STATUS convRunStatusName(const char* val) {
     return status;
 }
 
-int gvm_create_schedule(const char* name, const char* firstRun,
-    enum ICAL_DATE_REP_TYPE type, const char* _list,
+int gvm_create_schedule(const char* name, enum ICAL_DATE_REP_TYPE type,
+    const char* firstRun, const char* _list,
     char uuid[], int maxlen,
     kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
 
     do {  
-        if (ICAL_DATE_ONCE == type) {
+        uuid[0] = '\0';
+        
+        if (ICAL_DATE_NONE == type) {
+            LOG_INFO("create_schedule| uuid=%s| name=%s|"
+                " first_time=%s| type=%d| list=%s| msg=ok, no need to create schedule|",
+                uuid, name, firstRun, type, _list);
+                
+            /* no need uuid */
+            ret = 0;
+            break;
+        } else if (ICAL_DATE_ONCE == type) {
             tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity, 
                 REQ_GVM_CREAT_SCHEDULE_MARK,
                 name, firstRun, 
@@ -362,12 +365,18 @@ int gvm_create_schedule(const char* name, const char* firstRun,
             tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity, 
                 REQ_GVM_CREAT_SCHEDULE_MARK,
                 name, firstRun, 
-                DEF_ICALENDAR[type], DEF_EMPTY_STR, DEF_WIN_CR_LF); 
-        } else if (ICAL_DATE_WEEKLY == type || ICAL_DATE_MONTHLY == type) {
+                "RRULE:FREQ=DAILY", DEF_EMPTY_STR, DEF_WIN_CR_LF); 
+        } else if (ICAL_DATE_WEEKLY == type) {
+        
             tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity, 
                 REQ_GVM_CREAT_SCHEDULE_MARK,
                 name, firstRun, 
-                DEF_ICALENDAR[type], _list, DEF_WIN_CR_LF); 
+                "RRULE:FREQ=WEEKLY;BYDAY=", _list, DEF_WIN_CR_LF); 
+        } else if (ICAL_DATE_MONTHLY == type) {
+            tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity, 
+                REQ_GVM_CREAT_SCHEDULE_MARK,
+                name, firstRun, 
+                "RRULE:FREQ=MONTHLY;BYMONTHDAY=", _list, DEF_WIN_CR_LF); 
         } else {
             LOG_ERROR("gvm_create_schedule| name=%s| first_time=%s| type=%d| list=%s|"
                 " msg=invalid type|",

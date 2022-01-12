@@ -40,9 +40,10 @@
     "group_name=\"%s\"\n"\
     "config_id=\"%s\"\n"\
     "target_id=\"%s\"\n"\
-    "portlist_id=\"%s\"\n"\ 
+    "portlist_id=\"%s\"\n"\
     "hosts=\"%s\"\n"\
     "schedule_type=\"%d\"\n"\
+    "schedule_id=\"%s\"\n"\
     "schedule_time=\"%s\"\n"\
     "schedule_list=\"%s\"\n"\
     "create_time=\"%s\"\n"\
@@ -696,7 +697,7 @@ int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbu
 
         task = g_gvm_data->task_ops->find_task(g_gvm_data, &oKey);
         if (NULL == task) {
-            LOG_ERROR("start_task| name=%s| task_id=%s| target_id=%s|"
+            LOG_ERROR("daemon_start_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=the task donot exist|",
                 oKey.m_task_info.m_task_name,
                 oKey.m_task_info.m_task_id,
@@ -708,7 +709,7 @@ int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbu
 
         /* can only start the not-running task */
         if (g_gvm_data->task_ops->chk_task_running(g_gvm_data, task)) {
-            LOG_ERROR("start_task| name=%s| task_id=%s| target_id=%s|"
+            LOG_ERROR("daemon_start_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=the task is already running now|",
                 oKey.m_task_info.m_task_name,
                 oKey.m_task_info.m_task_id,
@@ -721,7 +722,7 @@ int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbu
         ret = gvm_start_task(task->m_task_info.m_task_id, 
             report_id, MAX_UUID_SIZE, tmpbuf, outbuf);
         if (0 == ret) {
-            LOG_INFO("start_task| name=%s| task_id=%s| target_id=%s|"
+            LOG_INFO("daemon_start_task| name=%s| task_id=%s| target_id=%s|"
                 " new_report_id=%s| last_report_id=%s| msg=start task ok|",
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_task_id,
@@ -729,7 +730,7 @@ int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbu
                 report_id, 
                 task->m_report_info.m_cur_report_id); 
         } else {
-            LOG_ERROR("start_task| name=%s| task_id=%s| target_id=%s|"
+            LOG_ERROR("daemon_start_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=gvm process error|",
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_task_id,
@@ -761,7 +762,7 @@ int daemon_stop_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf
 
         task = g_gvm_data->task_ops->find_task(g_gvm_data, &oKey);
         if (NULL == task) {
-            LOG_ERROR("stop_task| name=%s| task_id=%s| target_id=%s|"
+            LOG_ERROR("daemon_stop_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=the task donot exist|",
                 oKey.m_task_info.m_task_name,
                 oKey.m_task_info.m_task_id,
@@ -773,7 +774,7 @@ int daemon_stop_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf
 
         /* can only stop running task */
         if (!g_gvm_data->task_ops->chk_task_running(g_gvm_data, task)) {
-            LOG_ERROR("stop_task| name=%s| task_id=%s| target_id=%s|"
+            LOG_ERROR("daemon_stop_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=the task is not running now|",
                 oKey.m_task_info.m_task_name,
                 oKey.m_task_info.m_task_id,
@@ -785,14 +786,14 @@ int daemon_stop_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf
         
         ret = gvm_stop_task(task->m_task_info.m_task_id, tmpbuf, outbuf);
         if (0 == ret) {
-            LOG_INFO("stop_task| name=%s| task_id=%s| target_id=%s|"
+            LOG_INFO("daemon_stop_task| name=%s| task_id=%s| target_id=%s|"
                 " report_id=%s| msg=stop task ok|",
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_task_id,
                 task->m_target_info.m_target_id,
                 task->m_report_info.m_cur_report_id);
         } else {
-            LOG_ERROR("stop_task| name=%s| task_id=%s| target_id=%s|"
+            LOG_ERROR("daemon_stop_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=gvm process error|",
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_task_id,
@@ -1084,16 +1085,7 @@ static int getCreateTaskParam(const char* input, ListGvmTask_t task) {
             break;
         }
 
-        type = atoi(val);
-        if (ICAL_DATE_END > type && ICAL_DATE_ONCE <= type) {
-            task->m_task_info.m_schedule_type = (enum ICAL_DATE_REP_TYPE)type;
-        } else { 
-            LOG_ERROR("%s: parse parameter| text=%s| msg=invalid _schedule_type|",
-                __FUNCTION__, input);
-
-            ret = -1;
-            break;
-        }
+        task->m_task_info.m_schedule_type = (enum ICAL_DATE_REP_TYPE)atoi(val); 
 
         ret = getNextToken(saveptr, OPENVAS_KB_DELIM, 
             task->m_task_info.m_first_schedule_time, 
@@ -1112,6 +1104,18 @@ static int getCreateTaskParam(const char* input, ListGvmTask_t task) {
         if (0 != ret) {
             LOG_ERROR("%s: parse parameter| text=%s| msg=invalid schedule_list|",
                 __FUNCTION__, input);
+            break;
+        }
+
+        ret = chkScheduleParam(task->m_task_info.m_schedule_type, 
+            task->m_task_info.m_first_schedule_time, 
+            task->m_task_info.m_schedule_list);
+        if (0 != ret) {
+            LOG_ERROR( "php_create_task| schedul_type=%d| schedul_time=%s|"
+                " schedul_list=%s| msg=invalid schedule parameters|", 
+                task->m_task_info.m_schedule_type,
+                task->m_task_info.m_first_schedule_time, 
+                task->m_task_info.m_schedule_list);
             break;
         }
 
@@ -1147,7 +1151,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
         /* check if task exists */
         oldtask = g_gvm_data->task_ops->find_task(g_gvm_data, task);
         if (NULL != oldtask) {
-            LOG_ERROR("create_target| name=%s| group_name=%s| hosts=%s|"
+            LOG_ERROR("daemon_create_task| name=%s| group_name=%s| hosts=%s|"
                 " msg=the task already exist|",
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_group_name,
@@ -1165,14 +1169,14 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
             ARR_SIZE(task->m_target_info.m_target_id), 
             tmpbuf, outbuf);
         if (0 == ret) {
-            LOG_INFO("create_target| target_id=%s| name=%s| hosts=%s| portlist=%s|"
+            LOG_INFO("daemon_create_task| target_id=%s| name=%s| hosts=%s| portlist=%s|"
                 " msg=create target ok|",
                 task->m_target_info.m_target_id,
                 task->m_target_info.m_target_name, 
                 task->m_target_info.m_hosts, 
                 task->m_target_info.m_portlist_id);
         } else {
-            LOG_ERROR("create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
+            LOG_ERROR("daemon_create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
                 " target_id=%s| schedule_id=%s|"
                 " msg=create target fail|",
                 task->m_task_info.m_task_name,
@@ -1185,14 +1189,14 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
         }
 
         ret = gvm_create_schedule(task->m_task_info.m_task_name,
-            task->m_task_info.m_first_schedule_time,
             task->m_task_info.m_schedule_type,
+            task->m_task_info.m_first_schedule_time, 
             task->m_task_info.m_schedule_list,
             task->m_task_info.m_schedule_id,
             ARR_SIZE(task->m_task_info.m_schedule_id),
             tmpbuf, outbuf);
         if (0 == ret) {
-            LOG_INFO("create_task| task_id=%s| name=%s| hosts=%s| portlist=%s|"
+            LOG_INFO("daemon_create_task| task_id=%s| name=%s| hosts=%s| portlist=%s|"
                 " config_id=%s| target_id=%s| schedule_id=%s|"
                 " msg=create schedule ok|",
                 task->m_task_info.m_task_id,
@@ -1203,7 +1207,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
                 task->m_target_info.m_target_id,
                 task->m_task_info.m_schedule_id);
         } else {
-            LOG_ERROR("create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
+            LOG_ERROR("daemon_create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
                 " target_id=%s| schedule_id=%s|"
                 " msg=create schedule fail, so delete new target|",
                 task->m_task_info.m_task_name,
@@ -1226,7 +1230,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
             ARR_SIZE(task->m_task_info.m_task_id), 
             tmpbuf, outbuf);
         if (0 == ret) {
-            LOG_INFO("create_task| task_id=%s| name=%s| hosts=%s| portlist=%s|"
+            LOG_INFO("daemon_create_task| task_id=%s| name=%s| hosts=%s| portlist=%s|"
                 " config_id=%s| target_id=%s| schedule_id=%s|"
                 " msg=create task ok|",
                 task->m_task_info.m_task_id,
@@ -1237,7 +1241,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
                 task->m_target_info.m_target_id,
                 task->m_task_info.m_schedule_id);
         } else {
-            LOG_ERROR("create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
+            LOG_ERROR("daemon_create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
                 " target_id=%s| schedule_id=%s|"
                 " msg=create task fail, so delete new target and schedule|",
                 task->m_task_info.m_task_name,
@@ -1249,7 +1253,10 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
 
             /* delete the created target and schedule */
             gvm_delete_target(task->m_target_info.m_target_id, tmpbuf, outbuf);
-            gvm_delete_schedule(task->m_task_info.m_schedule_id, tmpbuf, outbuf);
+
+            if ('\0' != task->m_task_info.m_schedule_id[0]) {
+                gvm_delete_schedule(task->m_task_info.m_schedule_id, tmpbuf, outbuf);
+            }
             break;
         }
 
@@ -1265,6 +1272,10 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
          
         ret = g_gvm_data->task_ops->add_task(g_gvm_data, task);
         if (0 == ret) { 
+            LOG_INFO("daemon_create_task| name=%s| task_id=%s| msg=add task ok|",
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id);
+            
             g_gvm_data->task_ops->write_task_file(g_gvm_data, tmpbuf); 
 
             addTaskChecks(g_gvm_data, task);
@@ -1272,7 +1283,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
             /* avoid to free ptr */
             task = NULL;
         } else {
-            LOG_ERROR("create_task| name=%s| task_id=%s| msg=add task error|",
+            LOG_ERROR("daemon_create_task| name=%s| task_id=%s| msg=add task error|",
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_task_id);
             
@@ -1402,6 +1413,7 @@ static void printGvmTask(const ListGvmTask_t task) {
         "portlist_id=\"%s\"\n"
         "hosts=\"%s\"\n"
         "schedule_type=\"%d\"\n"\
+        "schedule_id=\"%s\"\n"\
         "schedule_time=\"%s\"\n"\
         "schedule_list=\"%s\"\n"\
         "create_time=\"%s\"\n"
@@ -1422,6 +1434,7 @@ static void printGvmTask(const ListGvmTask_t task) {
         task->m_target_info.m_hosts,
 
         (int)task->m_task_info.m_schedule_type,
+        task->m_task_info.m_schedule_id, 
         task->m_task_info.m_first_schedule_time,
         task->m_task_info.m_schedule_list,
         task->m_task_info.m_create_time,
@@ -1553,10 +1566,17 @@ static int parseTaskRecord(GvmDataList_t data, kb_buf_t cache) {
                         break;
                     }
 
+                    ret = getPatternKey(start, "schedule_id", UUID_REG_PATTERN_OR_NULL, 
+                        task->m_task_info.m_schedule_id, 
+                        ARR_SIZE(task->m_task_info.m_schedule_id));
+                    if (0 != ret) {
+                        break;
+                    } 
+
                     task->m_task_info.m_schedule_type = (enum ICAL_DATE_REP_TYPE)atoi(val);
                     
                     ret = getPatternKey(start, "schedule_time", 
-                        CUSTOM_SCHEDULE_TIME_PATTERN, 
+                        CUSTOM_SCHEDULE_TIME_PATTERN_OR_NULL, 
                         task->m_task_info.m_first_schedule_time, 
                         ARR_SIZE(task->m_task_info.m_first_schedule_time));
                     if (0 != ret) {
@@ -1659,9 +1679,12 @@ static int writeTaskRecord(void* ctx, LList_t _list) {
         task->m_target_info.m_target_id,
         task->m_target_info.m_portlist_id,
         task->m_target_info.m_hosts,
+
         task->m_task_info.m_schedule_type,
+        task->m_task_info.m_schedule_id, 
         task->m_task_info.m_first_schedule_time,
         task->m_task_info.m_schedule_list,
+        
         task->m_task_info.m_create_time);
     if (0 < cnt && cnt <= left) {
         buffer->m_size += cnt;

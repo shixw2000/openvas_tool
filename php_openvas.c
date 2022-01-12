@@ -2,7 +2,7 @@
 #include"task_openvas.h"
 
 
-typedef int (*PFunc)(const char* msg, int len);
+typedef int (*PFunc)(const char* msg, int len, kb_buf_t tmpbuf);
 
 struct php_task_handler {
     const char* m_cmd;
@@ -26,24 +26,37 @@ int openvas_cmd_entry(const char* cmd, int cmdlen,
     const char* param, int paramlen) {
     int ret = 0;
     const struct php_task_handler* phd = NULL;
+    struct kb_buf tmpbuf;
 
     for (phd=g_hds; NULL != phd->m_cmd; ++phd) {
         if (0 == strcasecmp(phd->m_cmd, cmd)) {
-            ret = phd->m_cb(param, paramlen);
+
+            /* allocate tmp cache */
+            ret = genBuf(MAX_CACHE_SIZE, &tmpbuf);
             if (0 == ret) {
-                LOG_INFO( "php_entry| cmd=[%d]%s| param=[%d]%s| msg=deal ok|", 
-                    cmdlen, cmd, paramlen, param);
+                ret = phd->m_cb(param, paramlen, &tmpbuf);
+                if (0 == ret) {
+                    LOG_INFO( "php_entry| cmd=[%d]%s| param=[%d]%s| msg=deal ok|", 
+                        cmdlen, cmd, paramlen, param);
+                } else {
+                    LOG_ERROR( "php_entry| ret=%d| cmd=[%d]%s| param=[%d]%s| msg=deal failed|",
+                        ret, cmdlen, cmd, paramlen, param);
+                }
+
+                /* free cache */
+                freeBuf(&tmpbuf);
             } else {
-                LOG_ERROR( "php_entry| cmd=[%d]%s| param=[%d]%s| msg=deal failed|",
+                LOG_ERROR( "php_entry| cmd=[%d]%s| param=[%d]%s| error=no memory|",
                     cmdlen, cmd, paramlen, param);
+                ret = -1;
             }
 
             return ret;
         }
     }
 
-    LOG_ERROR( "php_entry| cmd=[%d]%s| param=[%d]%s| msg=invalid params|",
-                    cmdlen, cmd, paramlen, param);
+    LOG_ERROR( "php_entry| cmd=[%d]%s| param=[%d]%s| error=invalid params|",
+        cmdlen, cmd, paramlen, param);
     return -1;
 }
 
