@@ -10,12 +10,12 @@
 
 
 #define REQ_GVM_CREAT_SCHEDULE_MARK "<create_schedule><name>wEb_%s</name>"\
-"<icalendar>"\
+"<timezone>UTC</timezone><icalendar>"\
 "BEGIN:VCALENDAR\r\n"\
 "VERSION:2.0\r\n"\
 "PRODID:-//Greenbone.net//NONSGML Greenbone Security Manager 21.4.3//EN\r\n"\
 "BEGIN:VEVENT\r\n"\
-"DTSTART:%s\r\n"\
+"DTSTART;TZID=UTC:%s\r\n"\
 "DURATION:PT0S\r\n"\
 "%s%s%s"\
 "END:VEVENT\r\n"\
@@ -607,9 +607,15 @@ int parseResult(const kb_buf_t buffer, gvm_result_info_t info) {
                 break;
             }
 
-            ret = findChildNodeText(doc, cur, "creation_time", 
-                nvt->m_nvtinfo.res_create_time,
-                ARR_SIZE(nvt->m_nvtinfo.res_create_time));
+            ret = findChildNodeText(doc, cur, "creation_time", val, ARR_SIZE(val));
+            if (0 != ret) {
+                break;
+            } 
+            
+            /* convert time format */
+            ret = utc2LocalTime(nvt->m_nvtinfo.res_create_time,
+                ARR_SIZE(nvt->m_nvtinfo.res_create_time),
+                val);
             if (0 != ret) {
                 break;
             }
@@ -739,14 +745,24 @@ int parseReport(const kb_buf_t buffer, gvm_report_info_t info) {
             break;
         }
 
-        ret = findChildNodeText(doc, child, "scan_start", info->m_start_time, 
-            ARR_SIZE(info->m_start_time));
+        ret = findChildNodeText(doc, child, "scan_start", val, ARR_SIZE(val));
         if (0 != ret) {
             break;
         }
 
-        ret = findChildNodeText(doc, child, "scan_end", info->m_stop_time,
-            ARR_SIZE(info->m_stop_time));
+        /* convert time format */
+        ret = utc2LocalTime(info->m_start_time, ARR_SIZE(info->m_start_time), val);
+        if (0 != ret) {
+            break;
+        }
+
+        ret = findChildNodeText(doc, child, "scan_end", val, ARR_SIZE(val));
+        if (0 != ret) {
+            break;
+        }
+
+        /* convert time format */
+        ret = utc2LocalTime(info->m_stop_time, ARR_SIZE(info->m_stop_time), val);
         if (0 != ret) {
             break;
         }
@@ -989,19 +1005,16 @@ int backend_query_result(GvmDataList_t data,
             ret = data->task_ops->write_task_result_file(data, task, outbuf); 
             if (0 != ret) {
                 break;
-            }
-
-            /* get all results, then write status file */
-            ret = data->task_ops->write_task_status_file(data, task, tmpbuf);
-            if (0 != ret) {
-                break;
-            }
-
-            /* end and clear old info */
-            resetGvmResultInfo(&task->m_result_info);
+            } 
 
             setTaskChkType(task, GVM_TASK_CHK_TASK); 
             interval = DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_TASK];
+
+            /* write to file while check_type changes */
+            data->task_ops->write_task_status_file(data, task, tmpbuf);
+
+            /* end and clear old info */
+            resetGvmResultInfo(&task->m_result_info);
         } 
 
         ret = 0;
@@ -1015,7 +1028,6 @@ int backend_query_result(GvmDataList_t data,
 int backend_query_report(GvmDataList_t data, 
     ListGvmTask_t task, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
-    int needUpdate = 0;
     long long interval = DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_REPORT];
     struct gvm_report_info info; 
         
@@ -1033,31 +1045,30 @@ int backend_query_report(GvmDataList_t data,
         } 
 
         if (info.m_status != task->m_report_info.m_status
-            || info.m_progress != task->m_report_info.m_progress) {
+            || info.m_progress != task->m_report_info.m_progress) { 
+
+            /* set time */ 
+            setTaskStartTime(task, info.m_start_time);
+            setTaskStopTime(task, info.m_stop_time);
+
             /* update task status */
             setTaskStatus(task, info.m_status);
             setTaskProgress(task, info.m_progress);
 
-            setTaskStartTime(task, info.m_start_time);
-            setTaskStopTime(task, info.m_stop_time);
-
-            needUpdate = 1; 
-        }
-
-        /* continue to get report progress */
-        if (data->task_ops->chk_task_running(data, task)) {
-            if (needUpdate) {
-                /* write to file */
-                data->task_ops->write_task_status_file(data, task, tmpbuf);
+            if (data->task_ops->chk_task_running(data, task)) {
+                /* continue, conno op */
+            } else if (data->task_ops->chk_task_done(data, task)) {
+                /* if task is end, then query the results */            
+                setTaskChkType(task, GVM_TASK_CHK_RESULT);
+                interval = 0;
+            } else {
+                /* other status, reset to type task  */
+                setTaskChkType(task, GVM_TASK_CHK_TASK);
+                interval = DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_TASK];
             }
-        } else if (data->task_ops->chk_task_done(data, task)) {
-            /* if task is end, then query the results and then update status file there */            
-            setTaskChkType(task, GVM_TASK_CHK_RESULT);
-            interval = 0;
-        } else {
-            /* other status, not used  */
-            setTaskChkType(task, GVM_TASK_CHK_TASK);
-            interval = DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_TASK];
+
+            /* write to file */
+            data->task_ops->write_task_status_file(data, task, tmpbuf);
         }
 
         ret = 0;
@@ -1071,6 +1082,7 @@ int backend_query_report(GvmDataList_t data,
 int backend_query_task(GvmDataList_t data, 
     ListGvmTask_t task, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
+    int need_update = 0;
     long long interval = DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_TASK];
     struct gvm_report_info info; 
         
@@ -1087,25 +1099,28 @@ int backend_query_task(GvmDataList_t data,
             break;
         }
 
-        /* update new report */
-        if ('\0' != info.m_cur_report_id[0]) {
-            if (0 != strcmp(task->m_report_info.m_cur_report_id, info.m_cur_report_id)) {
-                
-                setTaskCurrReport(task, info.m_cur_report_id); 
-                setTaskChkType(task, GVM_TASK_CHK_REPORT); 
-                interval = 0;
-            }
-        } else if ('\0' != info.m_last_report_id[0]) {
-            if (0 != strcmp(task->m_report_info.m_cur_report_id, info.m_last_report_id)) {
-                
-                setTaskCurrReport(task, info.m_last_report_id); 
-                setTaskChkType(task, GVM_TASK_CHK_REPORT);
-                interval = 0;
-            }
-        } else {
-            /* no report */
-        }
+        need_update = updateTaskReport(task, &info);
+        if (need_update) {
+            task->m_report_info.m_report_cnt = info.m_report_cnt;
+            task->m_report_info.m_finish_cnt = info.m_finish_cnt; 
 
+            /* reset time */
+            setTaskStartTime(task, info.m_start_time);
+            setTaskStopTime(task, info.m_stop_time); 
+
+            /* change status to prepare running */
+            setTaskStatus(task, GVM_TASK_READY); 
+            setTaskProgress(task, 0); 
+
+            /* change chk type */
+            setTaskChkType(task, GVM_TASK_CHK_REPORT); 
+
+            data->task_ops->write_task_status_file(data, task, tmpbuf);
+            
+            /* go to query the report details */
+            interval = 0;
+        }
+        
         ret = 0;
     } while (0);
 
@@ -1115,15 +1130,38 @@ int backend_query_task(GvmDataList_t data,
     return ret;
 }
 
-void setTaskCurrReport(ListGvmTask_t task, const char* uuid) {
-    if (NULL != uuid && '\0' != uuid[0]) {
-        strncpy(task->m_report_info.m_last_report_id, 
-            task->m_report_info.m_cur_report_id,
-            ARR_SIZE(task->m_report_info.m_last_report_id));
+int updateTaskReport(ListGvmTask_t task, const gvm_report_info_t info) {
+    int need_update = 0;
+    
+    if ('\0' != info->m_cur_report_id[0]) {
+        if (0 != strcmp(task->m_report_info.m_cur_report_id, info->m_cur_report_id)) {
+            need_update = 1;
+            
+            strncpy(task->m_report_info.m_last_report_id, 
+                task->m_report_info.m_cur_report_id,
+                ARR_SIZE(task->m_report_info.m_last_report_id));
 
-        strncpy(task->m_report_info.m_cur_report_id, uuid,
-            ARR_SIZE(task->m_report_info.m_cur_report_id));
-    }
+            strncpy(task->m_report_info.m_cur_report_id, 
+                info->m_cur_report_id,
+                ARR_SIZE(task->m_report_info.m_cur_report_id));
+        }
+    } else if ('\0' != info->m_last_report_id[0]) {
+        if (0 != strcmp(task->m_report_info.m_cur_report_id, info->m_last_report_id)) {
+            need_update = 1;
+
+            strncpy(task->m_report_info.m_last_report_id, 
+                task->m_report_info.m_cur_report_id,
+                ARR_SIZE(task->m_report_info.m_last_report_id));
+
+            strncpy(task->m_report_info.m_cur_report_id, 
+                info->m_last_report_id,
+                ARR_SIZE(task->m_report_info.m_cur_report_id));
+        }
+    } else {
+        /* no change */
+    } 
+
+    return need_update;
 } 
 
 void setTaskNextChkTime(ListGvmTask_t task, long long time) {
@@ -1145,21 +1183,14 @@ int isTaskChkTimeExpired(ListGvmTask_t task) {
 } 
 
 int addTaskChecks(GvmDataList_t data, ListGvmTask_t task) {
-    LOG_INFO("add_task_check| name=%s| status=%d|"
+    LOG_INFO("add_task_check| name=%s| status=%d| chk_type=%d|"
         " task_id=%s| target_id=%s|"
         " msg=ok|",
         task->m_task_info.m_task_name,
         getTaskStatus(task),
+        getTaskChkType(task),
         task->m_task_info.m_task_id,
         task->m_target_info.m_target_id);
-
-    /* if task is running, then check report status */
-    if (data->task_ops->chk_task_running(data, task)) {
-        setTaskChkType(task, GVM_TASK_CHK_REPORT);
-    } else {
-        /* else task to check base info */
-        setTaskChkType(task, GVM_TASK_CHK_TASK); 
-    }
 
     /* add new task for the first time, set the largest wait time */
     setTaskNextChkTime(task, DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_TASK]);
@@ -1238,7 +1269,7 @@ int deleteTaskWhole(GvmDataList_t data, ListGvmTask_t task, kb_buf_t tmpbuf) {
         data->task_ops->write_task_file(data, tmpbuf);
         data->task_ops->del_task_relation_files(data, task); 
 
-        LOG_INFO("delete_task_all| name=%s| task_id=%s| target_id=%s|"
+        LOG_INFO("delete_task_whole| name=%s| task_id=%s| target_id=%s|"
             " msg=del task all ok|",
             task->m_task_info.m_task_name,
             task->m_task_info.m_task_id,
@@ -1247,7 +1278,7 @@ int deleteTaskWhole(GvmDataList_t data, ListGvmTask_t task, kb_buf_t tmpbuf) {
         /* memory free */
         data->task_ops->free_task(task); 
     } else {
-        LOG_ERROR("delete_task_all| name=%s| task_id=%s| target_id=%s|"
+        LOG_ERROR("delete_task_whole| name=%s| task_id=%s| target_id=%s|"
             " msg=delete task error|",
             task->m_task_info.m_task_name,
             task->m_task_info.m_task_id,

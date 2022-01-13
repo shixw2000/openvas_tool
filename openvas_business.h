@@ -188,6 +188,9 @@ struct GvmTaskOperation {
     /* return : 1-completed, 0-not completed */
     int (*chk_task_done)(GvmDataList_t, ListGvmTask_t task);
 
+    /* return: 1-busy, 0: idle */
+    int (*chk_task_busy)(GvmDataList_t, ListGvmTask_t task);
+
     void (*print_task)(const ListGvmTask_t task);
     void (*print_all_tasks)(GvmDataList_t, int);
 };
@@ -199,8 +202,8 @@ extern enum GVM_TASK_STATUS getTaskStatus(const ListGvmTask_t task);
 extern void setTaskChkType(ListGvmTask_t task, enum GVM_TASK_CHK_TYPE type);
 extern enum GVM_TASK_CHK_TYPE getTaskChkType(const ListGvmTask_t task);
 
-extern void setTaskStartTime(ListGvmTask_t task, const char* time);
-extern void setTaskStopTime(ListGvmTask_t task, const char* time); 
+extern int setTaskStartTime(ListGvmTask_t task, const char* time);
+extern int setTaskStopTime(ListGvmTask_t task, const char* time); 
 
 extern GvmDataList_t createData();
 extern int finishData(GvmDataList_t);

@@ -38,7 +38,8 @@ extern int testParseXmlSimple(const kb_buf_t buffer,
 extern int testParseXmlSimpleAttr(const kb_buf_t buffer, 
     const char* base, const char* path, const char* attr);
 
-extern void setTaskCurrReport(ListGvmTask_t task, const char* uuid);
+extern int updateTaskReport(ListGvmTask_t task, const gvm_report_info_t info);
+
 extern void setTaskNextChkTime(ListGvmTask_t task, long long time);
 extern int isTaskChkTimeExpired(ListGvmTask_t task);
 

@@ -97,6 +97,11 @@ enum ICAL_DATE_REP_TYPE {
 };
 
 
+#define CUSTOM_SCHEDULE_TYPE_PATTERN "[0-9]"
+#define CUSTOM_SCHEDULE_TIME_MARK "%Y%m%dT%H%M%SZ"
+#define CUSTOM_SCHEDULE_LIST_PATTERN "[-0-9a-zA-Z,]{0,128}" 
+
+
 extern const struct kb_operations *KBDefaultOperations;
 
 static inline kb_t kb_create() {
@@ -139,8 +144,15 @@ extern void setMyLogLevel(int level);
 extern long long getTime();
 extern long long getClkTime();
 
-extern int time2asc(long long time, char psz[], int maxlen);
+extern int time2asc(const long long* ptime, const char format[], 
+    char psz[], int maxlen, int is_local);
+
+extern int asc2time(long long* ptime, const char text[], 
+    const char format[], int is_local);
+
 extern int getTimeStamp(char psz[], int maxlen);
+extern int utc2LocalTime(char local[], int maxlen, const char utc[]);
+extern int local2SchedTime(char sched[], int maxlen, const char local[]);
 
 #ifdef __cplusplus
 }

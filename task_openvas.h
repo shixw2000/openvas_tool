@@ -16,13 +16,8 @@ extern "C" {
 #define CUSTOM_HOSTS_PATTERN "[-0-9/\n\r\t, .]{4,128}"
 #define CUSTOM_DIGIT_NUM_PATTERN "[0-9]{1,3}"
 #define CUSTOM_TIME_STAMP_PATTERN "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}"
-#define CUSTOM_UTC_TIME_STAMP_PATTERN_OR_NULL "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z|.?"
+#define CUSTOM_TIME_STAMP_PATTERN_OR_NULL "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}|.?"
 #define DEF_XML_OK_RSP_MARK "<%s status=\"20[0-9]\" status_text=\"[^\">]*\" id=\"(%s)\"/?>"
-
-#define CUSTOM_SCHEDULE_TYPE_PATTERN "[0-9]"
-#define CUSTOM_SCHEDULE_TIME_PATTERN_OR_NULL "[0-9]{8}T[0-9]{6}|.?"
-#define CUSTOM_SCHEDULE_LIST_PATTERN "[-0-9a-zA-Z,]{0,128}"
-
 
 
 /* file size must be not greater than 10M */ 

@@ -162,7 +162,7 @@ int php_create_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
         GVM_NAME_PATTERN,
         CUSTOM_HOSTS_PATTERN,
         CUSTOM_SCHEDULE_TYPE_PATTERN,
-        CUSTOM_SCHEDULE_TIME_PATTERN_OR_NULL,
+        CUSTOM_TIME_STAMP_PATTERN_OR_NULL,
         CUSTOM_SCHEDULE_LIST_PATTERN);
 
     ret = regcomp(&reg, tmpbuf->m_buf , REG_EXTENDED);

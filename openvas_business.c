@@ -5,6 +5,7 @@
 #include<stdlib.h>
 #include<signal.h> 
 #include<sys/file.h> 
+#include<string.h>
 
 #include"task_openvas.h"
 #include"openvas_business.h"
@@ -54,6 +55,7 @@
     "start_time=\"%s\"\n"\
     "stop_time=\"%s\"\n"\
     "status=\"%d\"\n"\
+    "chk_type=\"%d\"\n"\
     "progress=\"%d\"\n"\
     "report_id=\"%s\"\n"\
     "last_report_id=\"%s\"\n"\
@@ -708,9 +710,9 @@ int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbu
         }
 
         /* can only start the not-running task */
-        if (g_gvm_data->task_ops->chk_task_running(g_gvm_data, task)) {
+        if (g_gvm_data->task_ops->chk_task_busy(g_gvm_data, task)) {
             LOG_ERROR("daemon_start_task| name=%s| task_id=%s| target_id=%s|"
-                " msg=the task is already running now|",
+                " msg=the task is busy now, please wait to end|",
                 oKey.m_task_info.m_task_name,
                 oKey.m_task_info.m_task_id,
                 oKey.m_target_info.m_target_id);
@@ -904,13 +906,16 @@ int daemon_delete_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
             break;
         }
 
-        /* can only delete the not-running task */
-        if (g_gvm_data->task_ops->chk_task_running(g_gvm_data, task)) {
+        /* can only delete the not-busy task */
+        if (g_gvm_data->task_ops->chk_task_busy(g_gvm_data, task)) {
             LOG_ERROR("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
-                " error=the task is running now, please stop it first|",
+                " task_status=%d| chk_type=%d|"
+                " error=the task is busy now, please stop it first|",
                 oKey.m_task_info.m_task_name,
                 oKey.m_task_info.m_task_id,
-                oKey.m_target_info.m_target_id);
+                oKey.m_target_info.m_target_id,
+                getTaskStatus(task),
+                getTaskChkType(task));
             
             ret = -1;
             break;
@@ -958,11 +963,13 @@ int daemon_delete_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
                     task->m_task_info.m_task_id,
                     task->m_target_info.m_target_id);
             } 
-        }
+        } 
 
         /* delete cache and files */ 
         ret = deleteTaskWhole(g_gvm_data, task, tmpbuf);
         if (0 != ret) { 
+            setTaskChkType(task, GVM_TASK_CHK_DELETED);
+            
             break;
         }
         
@@ -1134,6 +1141,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
     int ret = 0;
     ListGvmTask_t oldtask = NULL;
     ListGvmTask_t task = NULL;
+    char utc_schedule_time[MAX_TIMESTAMP_SIZE] = {0};
 
     task = g_gvm_data->task_ops->create_task();
     if (NULL == task) {
@@ -1145,6 +1153,19 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
     do {
         ret = getCreateTaskParam(input, task);
         if (0 != ret) {
+            break;
+        }
+
+        ret = local2SchedTime(utc_schedule_time, ARR_SIZE(utc_schedule_time),
+            task->m_task_info.m_first_schedule_time);
+        if (0 != ret) {
+            LOG_ERROR("daemon_create_task| name=%s| group_name=%s| hosts=%s|"
+                " schedule_time=%s| msg=invalid schedule_time|",
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_group_name,
+                task->m_target_info.m_hosts,
+                task->m_task_info.m_first_schedule_time);
+            
             break;
         }
         
@@ -1190,7 +1211,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
 
         ret = gvm_create_schedule(task->m_task_info.m_task_name,
             task->m_task_info.m_schedule_type,
-            task->m_task_info.m_first_schedule_time, 
+            utc_schedule_time, 
             task->m_task_info.m_schedule_list,
             task->m_task_info.m_schedule_id,
             ARR_SIZE(task->m_task_info.m_schedule_id),
@@ -1269,6 +1290,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
             ARR_SIZE(task->m_task_info.m_modify_time));
        
         setTaskStatus(task, GVM_TASK_CREATE);
+        setTaskChkType(task, GVM_TASK_CHK_TASK);
          
         ret = g_gvm_data->task_ops->add_task(g_gvm_data, task);
         if (0 == ret) { 
@@ -1311,7 +1333,7 @@ static ListGvmTask_t newGvmTask() {
         initGvmReportInfo(&task->m_report_info);
         initGvmResultInfo(&task->m_result_info); 
 
-        task->m_chk_type = GVM_TASK_CHK_END; 
+        task->m_chk_type = GVM_TASK_CHK_TASK; 
     }
     
     return task;
@@ -1422,6 +1444,9 @@ static void printGvmTask(const ListGvmTask_t task) {
         "progress=%d\n"
         "report_id=\"%s\"\n"
         "last_report_id=\"%s\"\n"
+        
+        "start_time=\"%s\"\n"\
+        "stop_time=\"%s\"\n"\
         "chk_time=\"%lld\"\n",
         task->m_task_info.m_task_id,
         task->m_task_info.m_task_name,
@@ -1443,6 +1468,9 @@ static void printGvmTask(const ListGvmTask_t task) {
         task->m_report_info.m_progress,
         task->m_report_info.m_cur_report_id,
         task->m_report_info.m_last_report_id,
+
+        task->m_report_info.m_start_time,
+        task->m_report_info.m_stop_time,
         task->m_chk_time);
 }
 
@@ -1576,7 +1604,7 @@ static int parseTaskRecord(GvmDataList_t data, kb_buf_t cache) {
                     task->m_task_info.m_schedule_type = (enum ICAL_DATE_REP_TYPE)atoi(val);
                     
                     ret = getPatternKey(start, "schedule_time", 
-                        CUSTOM_SCHEDULE_TIME_PATTERN_OR_NULL, 
+                        CUSTOM_TIME_STAMP_PATTERN_OR_NULL, 
                         task->m_task_info.m_first_schedule_time, 
                         ARR_SIZE(task->m_task_info.m_first_schedule_time));
                     if (0 != ret) {
@@ -1776,7 +1804,7 @@ static int parseTaskStatusRecord(GvmDataList_t data,
                         break;
                     } 
                     
-                    ret = getPatternKey(start, "start_time", CUSTOM_UTC_TIME_STAMP_PATTERN_OR_NULL, 
+                    ret = getPatternKey(start, "start_time", CUSTOM_TIME_STAMP_PATTERN_OR_NULL, 
                         task->m_report_info.m_start_time, 
                         ARR_SIZE(task->m_report_info.m_start_time));
                     if (0 != ret) {
@@ -1784,7 +1812,7 @@ static int parseTaskStatusRecord(GvmDataList_t data,
                     }
 
 
-                    ret = getPatternKey(start, "stop_time", CUSTOM_UTC_TIME_STAMP_PATTERN_OR_NULL, 
+                    ret = getPatternKey(start, "stop_time", CUSTOM_TIME_STAMP_PATTERN_OR_NULL, 
                         task->m_report_info.m_stop_time, 
                         ARR_SIZE(task->m_report_info.m_stop_time));
                     if (0 != ret) {
@@ -1798,12 +1826,35 @@ static int parseTaskStatusRecord(GvmDataList_t data,
                     }
 
                     n = atoi(val);
-                    if (GVM_TASK_CREATE <= n && GVM_TASK_ERROR >= n) {
+                    if (GVM_TASK_CREATE <= n && GVM_TASK_ERROR > n) {
                         setTaskStatus(task, (enum GVM_TASK_STATUS)n);
                     } else {
                         LOG_ERROR("parse_status| task_name=%s| task_id=%s|"
                             " start_time=%s| stop_time=%s|"
                             " status=%s| msg=invalid status|",
+                            task->m_task_info.m_task_name,
+                            task->m_task_info.m_task_id,
+                            task->m_report_info.m_start_time,
+                            task->m_report_info.m_stop_time,
+                            val);
+                        
+                        ret = -1;
+                        break;
+                    }
+
+                    ret = getPatternKey(start, "chk_type", CUSTOM_DIGIT_NUM_PATTERN, 
+                        val, ARR_SIZE(val));
+                    if (0 != ret) {
+                        break;
+                    }
+
+                    n = atoi(val);
+                    if (GVM_TASK_CHK_TASK <= n && GVM_TASK_CHK_END > n) {
+                        setTaskChkType(task, (enum GVM_TASK_CHK_TYPE)n);
+                    } else {
+                        LOG_ERROR("parse_chk_type| task_name=%s| task_id=%s|"
+                            " start_time=%s| stop_time=%s|"
+                            " chk_type=%s| msg=invalid chk_type|",
                             task->m_task_info.m_task_name,
                             task->m_task_info.m_task_id,
                             task->m_report_info.m_start_time,
@@ -1907,7 +1958,6 @@ static int writeTaskStatusFile(GvmDataList_t data,
     ListGvmTask_t task, kb_buf_t buffer) {
     int ret = 0;
     int cnt = 0;
-    int total = 0;
     char tmpFile[MAX_FILENAME_PATH_SIZE] = {0};
     char normalFile[MAX_FILENAME_PATH_SIZE] = {0};
     FILE* hd = NULL;
@@ -1918,11 +1968,12 @@ static int writeTaskStatusFile(GvmDataList_t data,
     snprintf(normalFile, MAX_FILENAME_PATH_SIZE, "%s/"DEF_GVM_TASK_STATUS_FILE_PATT,
         data->m_task_priv_dir, task->m_task_info.m_task_name);
 
-    total = snprintf(buffer->m_buf, buffer->m_capacity, TASK_STATUS_FILE_FORMAT,
+    buffer->m_size = snprintf(buffer->m_buf, buffer->m_capacity, TASK_STATUS_FILE_FORMAT,
         task->m_task_info.m_task_id,
         task->m_report_info.m_start_time,
         task->m_report_info.m_stop_time,
-        task->m_report_info.m_status,
+        (int)getTaskStatus(task),
+        (int)getTaskChkType(task),
         task->m_report_info.m_progress,
         task->m_report_info.m_cur_report_id, 
         task->m_report_info.m_last_report_id, 
@@ -1930,20 +1981,20 @@ static int writeTaskStatusFile(GvmDataList_t data,
     
     hd = fopen(tmpFile, "wb");
     if (NULL != hd) { 
-        cnt = fwrite(buffer->m_buf, 1, total, hd);
+        cnt = fwrite(buffer->m_buf, 1, buffer->m_size, hd);
         fclose(hd);
 
-        if (cnt == total) {
+        if (cnt == (int)buffer->m_size) {
             ret = rename(tmpFile, normalFile);
             if (0 != ret) {
                 LOG_ERROR("write_task_status_file| old=%s| new=%s|"
                     " size=%d| msg=rename file error:%s|",
-                    tmpFile, normalFile, total, ERRMSG);
+                    tmpFile, normalFile, (int)buffer->m_size, ERRMSG);
             }
         } else {
             LOG_ERROR("write_task_status_file| name=%s|"
                 " total=%d| wr_cnt=%d| msg=write error|",
-                tmpFile, total, cnt);
+                tmpFile, (int)buffer->m_size, cnt);
 
             ret = -1;
         }
@@ -1993,20 +2044,40 @@ enum GVM_TASK_CHK_TYPE getTaskChkType(const ListGvmTask_t task) {
     return task->m_chk_type;
 }
 
-void setTaskStartTime(ListGvmTask_t task, const char* time) {
-    strncpy(task->m_report_info.m_start_time, time, 
-        ARR_SIZE(task->m_report_info.m_start_time));
+int setTaskStartTime(ListGvmTask_t task, const char* time) {
+    int cnt = 0;
+    int maxlen = 0;
+
+    maxlen = (int)ARR_SIZE(task->m_report_info.m_start_time);
+    cnt = strnlen(time, maxlen); 
+    if (cnt < maxlen) {
+        strncpy(task->m_report_info.m_start_time, time, maxlen);
+        return 0;
+    } else {
+        task->m_report_info.m_start_time[0] = '\0';
+        return -1;
+    }
 }
 
-void setTaskStopTime(ListGvmTask_t task, const char* time) {
-    strncpy(task->m_report_info.m_stop_time, time, 
-        ARR_SIZE(task->m_report_info.m_stop_time));
+int setTaskStopTime(ListGvmTask_t task, const char* time) {
+    int cnt = 0;
+    int maxlen = 0;
+
+    maxlen = (int)ARR_SIZE(task->m_report_info.m_stop_time);
+    cnt = strnlen(time, maxlen); 
+    if (cnt < maxlen) {
+        strncpy(task->m_report_info.m_stop_time, time, maxlen);
+        return 0;
+    } else {
+        task->m_report_info.m_stop_time[0] = '\0';
+        return -1;
+    }
 } 
 
 /* return : 1-running, 0-not running */
 int chkTaskRunning(GvmDataList_t data, ListGvmTask_t task) {
-    if (GVM_TASK_WAITING == task->m_report_info.m_status
-        || GVM_TASK_RUNNING == task->m_report_info.m_status) {
+    if (GVM_TASK_WAITING == getTaskStatus(task)
+        || GVM_TASK_RUNNING == getTaskStatus(task)) {
         return 1;
     } else {
         return 0;
@@ -2015,9 +2086,18 @@ int chkTaskRunning(GvmDataList_t data, ListGvmTask_t task) {
 
 /* return : 1-completed, 0-not completed */ 
 int chkTaskDone(GvmDataList_t data, ListGvmTask_t task) {
-    if (GVM_TASK_DONE == task->m_report_info.m_status
-        || GVM_TASK_STOP == task->m_report_info.m_status
-        || GVM_TASK_INTERRUPT == task->m_report_info.m_status) {
+    if (GVM_TASK_DONE == getTaskStatus(task)
+        || GVM_TASK_STOP == getTaskStatus(task)
+        || GVM_TASK_INTERRUPT == getTaskStatus(task)) {
+        return 1;
+    } else {
+        return 0;
+    }
+} 
+
+/* return: 1-busy, 0: idle */ 
+int chkTaskBusy(GvmDataList_t data, ListGvmTask_t task) {
+    if (chkTaskRunning(data, task) || GVM_TASK_CHK_TASK != getTaskChkType(task)) {
         return 1;
     } else {
         return 0;
@@ -2042,7 +2122,7 @@ int writeTaskResult(GvmDataList_t data, ListGvmTask_t task, kb_buf_t outbuf) {
 
     if (0 < outbuf->m_size) {
         psz = outbuf->m_buf;
-        total = outbuf->m_size;
+        total = (int)outbuf->m_size;
     } else {
         psz = DEF_EMPTY_RESULT;
         total  = (int)strlen(DEF_EMPTY_RESULT);
@@ -2102,7 +2182,8 @@ static const struct GvmTaskOperation DEFAULT_TASK_OPS = {
     delTaskRelationFiles,
         
     chkTaskRunning,
-    chkTaskDone,
+    chkTaskDone, 
+    chkTaskBusy,
 
     printGvmTask,
     printAllTaskRecs,

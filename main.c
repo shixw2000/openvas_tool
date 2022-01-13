@@ -174,6 +174,7 @@ void test04() {
     
     getLine("create task:\n", cmd);
     ret = php_create_task(cmd, 0, &tmpbuf);
+    LOG_INFO("ret=%d|\n", ret);
 } 
 
 void test05() {
@@ -263,6 +264,72 @@ void test10() {
     LOG_INFO("ret=[%d]\n", ret);
 }
 
+void test20() {
+    int ret = 0;
+    char inbuf[MAX_COMM_SIZE] = {0};
+    char outbuf[MAX_COMM_SIZE] = {0};
+
+    LOG_INFO("test local2SchedTime conversion:\n");
+    getLine("input time is:", inbuf); 
+
+    ret = local2SchedTime(outbuf, ARR_SIZE(outbuf), inbuf);
+    LOG_INFO("ret=[%d]| out=%s|\n", ret, outbuf);
+}
+
+void test21() {
+    int ret = 0;
+    char inbuf[MAX_COMM_SIZE] = {0};
+    char outbuf[MAX_COMM_SIZE] = {0};
+
+    LOG_INFO("test utc2LocalTime conversion:\n");
+    getLine("input time is:", inbuf); 
+
+    ret = utc2LocalTime(outbuf, ARR_SIZE(outbuf), inbuf);
+    LOG_INFO("ret=[%d]| out=%s|\n", ret, outbuf);
+}
+
+void test22() {
+    int ret = 0;
+    int is_local = 0;
+    long long time = 0L;
+    char inbuf[MAX_COMM_SIZE] = {0};
+    char outbuf[MAX_COMM_SIZE] = {0};
+
+    LOG_INFO("test asc2time conversion:\n");
+    
+    getText("is_local is:", inbuf);
+    is_local = atoi(inbuf);
+    
+    getLine("input asc is:", inbuf); 
+    getLine("input format is:", outbuf); 
+
+    ret = asc2time(&time, inbuf, outbuf, is_local);
+    LOG_INFO("ret=[%d]| time=%lld| text=%s| format=%s| is_local=%d|\n", 
+        ret, time, inbuf, outbuf, is_local);
+}
+
+void test23() {
+    int ret = 0;
+    int is_local = 0;
+    long long time = 0L;
+    char inbuf[MAX_COMM_SIZE] = {0};
+    char outbuf[MAX_COMM_SIZE] = {0};
+
+    LOG_INFO("test time2asc conversion:\n");
+
+    getText("is_local is:", inbuf);
+    is_local = atoi(inbuf);
+    
+    getText("input time is:", inbuf); 
+    time = atoll(inbuf);
+    
+    getLine("input format is:", outbuf); 
+    
+    ret = time2asc(&time, outbuf, inbuf, ARR_SIZE(inbuf), is_local);
+    LOG_INFO("ret=[%d]| time=%lld| text=%s| format=%s| is_local=%d|\n", 
+        ret, time, inbuf, outbuf, is_local);
+} 
+
 void test(int option) {
     int ret = 0;
     
@@ -314,6 +381,22 @@ void test(int option) {
 
     case 14:
         test14();
+        break;
+
+    case 20:
+        test20();
+        break;
+
+    case 21:
+        test21();
+        break;
+
+    case 22:
+        test22();
+        break;
+
+    case 23:
+        test23();
         break;
         
     default:

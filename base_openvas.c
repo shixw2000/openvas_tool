@@ -3,8 +3,12 @@
 #include<stdlib.h> 
 #include<errno.h>
 #include<unistd.h> 
-#include<hiredis.h> 
+#include<hiredis.h>
+
+#define _XOPEN_SOURCE 
+#define __USE_XOPEN
 #include<time.h>
+
 #include"base_openvas.h"
 
 
@@ -456,27 +460,48 @@ long long getClkTime() {
     return res.tv_sec;
 } 
 
-int time2asc(long long time, char psz[], int maxlen) {
+int time2asc(const long long* ptime, const char format[], 
+    char psz[], int maxlen, int is_local) {
     int cnt = 0;
     time_t tmpTime = 0;
-    struct tm local;
+    struct tm tm;
     struct tm* p = NULL;
 
-    tmpTime = (time_t)time;
-    p = localtime_r(&tmpTime, &local);
-    if (NULL != p) {
-        cnt = strftime(psz, maxlen, "%Y-%m-%d %H:%M:%S", &local);
-        if (0 < cnt && cnt < maxlen) {
-            psz[cnt] = '\0';
-            return 0;
-        } 
+    if (NULL != ptime && NULL != psz) {
+        memset(&tm, 0, sizeof(struct tm));
+        
+        tmpTime = (time_t)*ptime; 
+        if (is_local) {
+            p = localtime_r(&tmpTime, &tm);
+        } else {
+            p = gmtime_r(&tmpTime, &tm);
+        }
+        
+        if (NULL != p) {
+            cnt = strftime(psz, maxlen, format, p);
+            if (0 < cnt && cnt < maxlen) {
+                psz[cnt] = '\0';
+                return 0;
+            } else {
+                LOG_ERROR("%s: time=%lld| maxlen=%d| msg=buf size[%d] exceeds maxlen|",
+                    __FUNCTION__, *ptime, maxlen, cnt);
+
+                psz[0] = '\0';
+                return -1;
+            }
+        } else {
+            LOG_ERROR("%s: time=%lld| maxlen=%d| msg=time to ascii error:%s|",
+                __FUNCTION__, *ptime, maxlen, ERRMSG);
+
+            psz[0] = '\0';
+            return -1;
+        }
+    } else {
+        LOG_ERROR("%s: error=NULL_PTR|", __FUNCTION__);
+
+        psz[0] = '\0';
+        return -1;
     }
-
-    LOG_ERROR("%s: time=%lld| maxlen=%d| msg=time to ascii error:%s|",
-        __FUNCTION__, time, maxlen, ERRMSG);
-
-    psz[0] = '\0';
-    return -1;
 }
 
 int getTimeStamp(char psz[], int maxlen) {
@@ -485,12 +510,76 @@ int getTimeStamp(char psz[], int maxlen) {
 
     timestamp = getTime();
     if (0 < timestamp) {
-        ret = time2asc(timestamp, psz, maxlen);
+        ret = time2asc(&timestamp, "%Y-%m-%d %H:%M:%S", psz, maxlen, 1);
     } else {
         psz[0] = '\0';
         ret = -1;
     }
     
+    return ret;
+}
+
+int asc2time(long long* ptime, const char text[], 
+    const char format[], int is_local) {
+    int ret = 0;
+    struct tm tm;
+    char* psz = NULL;
+
+    if (NULL != ptime) {
+        memset(&tm, 0, sizeof(struct tm));
+        
+        psz = strptime(text, format, &tm);
+        if (NULL != psz) {
+            if (is_local) {
+                *ptime = (long long)timelocal(&tm);
+            } else {
+                *ptime = (long long)timegm(&tm);
+            }
+        } else {
+            LOG_ERROR("%s: text=%s| format=%s| error=convert time fail|",
+                __FUNCTION__, text, format);
+
+            ret = -1;
+        }
+    } else {
+        LOG_ERROR("%s: error=NULL_PTR|", __FUNCTION__);
+        ret = -1;
+    } 
+
+    return ret;
+}
+
+int utc2LocalTime(char local[], int maxlen, const char utc[]) {
+    int ret = 0;
+    long long time = 0L;
+
+    local[0] = '\0';
+    
+    /* allow empty utc */
+    if (NULL != utc && '\0' != utc[0]) {
+        ret = asc2time(&time, utc, "%Y-%m-%dT%H:%M:%SZ", 0);
+        if (0 == ret) {
+            ret = time2asc(&time, "%Y-%m-%d %H:%M:%S", local, maxlen, 1);
+        }
+    }
+
+    return ret;
+}
+
+int local2SchedTime(char sched[], int maxlen, const char local[]) {
+    int ret = 0;
+    long long time = 0L;
+
+    sched[0] = '\0';
+    
+    /* allow empty local */
+    if (NULL != local && '\0' != local[0]) {
+        ret = asc2time(&time, local, "%Y-%m-%d %H:%M:%S", 1);
+        if (0 == ret) {
+            ret = time2asc(&time, CUSTOM_SCHEDULE_TIME_MARK, sched, maxlen, 0);
+        }
+    }
+
     return ret;
 }
 
