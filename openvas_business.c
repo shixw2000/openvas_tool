@@ -26,7 +26,6 @@
 #define REQ_GVM_QUERY_TASK_MARK "<get_tasks task_id=\"%s\" details=\"0\" usage_type=\"scan\"/>"
 #define REQ_GVM_QUERY_RESULT_MARK "<get_results task_id=\"%s\" filter=\"report_id=%s levels=hml first=%d rows=%d\"/>"
 
-#define TOKEN_END_CHAR '\0'
 
 /* attensiont: must not be changed for anything */
 #define TASK_INFO_BEG_MARK "\n==========begin========\n"
@@ -40,11 +39,13 @@
     "group_id=\"%s\"\n"\
     "group_name=\"%s\"\n"\
     "config_id=\"%s\"\n"\
+    "config_created=\"%d\"\n"\
     "target_id=\"%s\"\n"\
     "portlist_id=\"%s\"\n"\
     "hosts=\"%s\"\n"\
     "schedule_type=\"%d\"\n"\
     "schedule_id=\"%s\"\n"\
+    "schedule_created=\"%d\"\n"\
     "schedule_time=\"%s\"\n"\
     "schedule_list=\"%s\"\n"\
     "create_time=\"%s\"\n"\
@@ -238,6 +239,49 @@ static int processIdle(kb_buf_t tmpbuf, kb_buf_t outbuf) {
     return hasMore;
 }
 
+static int clearLogFile(int nday) {
+    int ret = 0;
+    long long time = 0;
+    char path[MAX_FILENAME_PATH_SIZE] = {0};
+
+    time = getTimeLastDays(nday);
+    ret = getLogPath(&time, path, ARR_SIZE(path));
+    if (0 == ret) {
+        deleteFile(path);
+    }
+
+    return ret;
+}
+
+/* this is not an accurate timer,
+    but is like a rough timeout timer triggered every minute.
+*/ 
+static void timerPerMinute(kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    static long long g_min_cnt = 0;
+
+    ++g_min_cnt;
+
+    /* you can define your own timer work here by g_min_cnt % n */
+
+    /* every 512(0x200) minutes(~8h), to check and clear the last 7 day log file */
+    if (0 == (g_min_cnt & 0x1FF)) {
+        clearLogFile(7);
+    } 
+}
+ 
+static void triggerTimerPerMinute(kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    static const long long DEF_MINUTE_INTERAL_SEC = 60;
+    static long long g_last_time = 0;
+    long long now = getClkTime();
+
+    if (g_last_time + DEF_MINUTE_INTERAL_SEC <= now) {
+        timerPerMinute(tmpbuf, outbuf);
+        
+        g_last_time = getClkTime();
+    }
+}
+
+
 int gvm_start_task(const char* uuid, char report_id[], int maxlen, 
     kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
@@ -312,7 +356,7 @@ int gvm_query_report(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
             REQ_GVM_QUERY_REPORT_MARK, uuid);
         ret = procGvmTask("get_reports", tmpbuf, outbuf);  
         if (0 == ret) {
-            LOG_INFO("query_report| report_id=%s| msg=ok|", uuid);
+            LOG_DEBUG("query_report| report_id=%s| msg=ok|", uuid);
         } else {
             LOG_ERROR("query_report| report_id=%s| msg=gvm process failed|", uuid);
             break;
@@ -338,7 +382,7 @@ int gvm_query_task(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
             REQ_GVM_QUERY_TASK_MARK, uuid);
         ret = procGvmTask("get_tasks", tmpbuf, outbuf); 
         if (0 == ret) {
-            LOG_INFO("query_task| task_id=%s| msg=ok|", uuid);
+            LOG_DEBUG("query_task| task_id=%s| msg=ok|", uuid);
         } else {
             LOG_ERROR("query_task| task_id=%s| msg=gvm process failed|", uuid);
             break;
@@ -373,7 +417,7 @@ int gvm_query_result(const char* taskid, const char* reportid,
             taskid, reportid, first, rows);
         ret = procGvmTask("get_results", tmpbuf, outbuf); 
         if (0 == ret) {
-            LOG_INFO("query_result| task_id=%s| report_id=%s| msg=ok|", 
+            LOG_DEBUG("query_result| task_id=%s| report_id=%s| msg=ok|", 
                 taskid, reportid);
         } else {
             LOG_ERROR("query_result| task_id=%s| report_id=%s|"
@@ -389,8 +433,12 @@ int gvm_query_result(const char* taskid, const char* reportid,
 }
 
 
-int gvm_delete_task(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
+int gvm_option_delete_task(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
+
+    if (NULL == uuid || '\0' == uuid[0]) {
+        return 0;
+    }
 
     do {
         ret = chkUuid(uuid);
@@ -415,8 +463,12 @@ int gvm_delete_task(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     return -1;
 }
 
-int gvm_delete_target(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
+int gvm_option_delete_target(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
+
+    if (NULL == uuid || '\0' == uuid[0]) {
+        return 0;
+    }
 
     do {
         ret = chkUuid(uuid);
@@ -642,6 +694,10 @@ int startKbMsg() {
             sleep(1);
             --timeout;
         }
+
+        if (g_isRun) {
+            triggerTimerPerMinute(&tmpbuf, &outbuf);
+        }
     }
 
     kb_delete(kb);
@@ -683,29 +739,35 @@ static int cmpGvmRunChkTime(const LList_t o1, const LList_t o2) {
     return ret;
 } 
 
-static int getKeyTaskParam(const char* input, ListGvmTask_t task);
 
 int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
-    struct ListGvmTask oKey;
+    ListGvmTask_t key = NULL;
     ListGvmTask_t task = NULL;
     char report_id[MAX_UUID_SIZE] = {0};
 
+    key = g_gvm_data->task_ops->create_task();
+    if (NULL == key) {
+        LOG_ERROR("daemon_start_task| error=no memory|");
+        return GVM_ERR_INTERNAL_FAIL;
+    }
+
     do {
-        ret = getKeyTaskParam(input, &oKey);
+        ret = getKeyTaskParam(input, key);
         if (0 != ret) {
+            ret = GVM_ERR_PARAM_INVALID;
             break;
         }
 
-        task = g_gvm_data->task_ops->find_task(g_gvm_data, &oKey);
+        task = g_gvm_data->task_ops->find_task(g_gvm_data, key);
         if (NULL == task) {
             LOG_ERROR("daemon_start_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=the task donot exist|",
-                oKey.m_task_info.m_task_name,
-                oKey.m_task_info.m_task_id,
-                oKey.m_target_info.m_target_id);
+                key->m_task_info.m_task_name,
+                key->m_task_info.m_task_id,
+                key->m_target_info.m_target_id);
             
-            ret = -1;
+            ret = GVM_ERR_TASK_NOT_FOUND;
             break;
         }
 
@@ -713,11 +775,11 @@ int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbu
         if (g_gvm_data->task_ops->chk_task_busy(g_gvm_data, task)) {
             LOG_ERROR("daemon_start_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=the task is busy now, please wait to end|",
-                oKey.m_task_info.m_task_name,
-                oKey.m_task_info.m_task_id,
-                oKey.m_target_info.m_target_id);
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id,
+                task->m_target_info.m_target_id);
             
-            ret = -1;
+            ret = GVM_ERR_TASK_IS_BUSY;
             break;
         }
 
@@ -737,7 +799,8 @@ int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbu
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_task_id,
                 task->m_target_info.m_target_id);
-            
+
+            ret = GVM_ERR_OPENVAS_PROC_FAIL;
             break;
         }
 
@@ -745,32 +808,40 @@ int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbu
         setTaskNextChkTime(task, 0);
         g_gvm_data->task_ops->reque_run_task(g_gvm_data, task);
 
-        return 0;
     } while (0);
+
+    g_gvm_data->task_ops->free_task(key);
 
     return ret;
 }
 
 int daemon_stop_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
-    struct ListGvmTask oKey;
+    ListGvmTask_t key = NULL;
     ListGvmTask_t task = NULL;
 
+    key = g_gvm_data->task_ops->create_task();
+    if (NULL == key) {
+        LOG_ERROR("daemon_start_task| error=no memory|");
+        return GVM_ERR_INTERNAL_FAIL;
+    }
+
     do {
-        ret = getKeyTaskParam(input, &oKey);
+        ret = getKeyTaskParam(input, key);
         if (0 != ret) {
+            ret = GVM_ERR_PARAM_INVALID;
             break;
         }
 
-        task = g_gvm_data->task_ops->find_task(g_gvm_data, &oKey);
+        task = g_gvm_data->task_ops->find_task(g_gvm_data, key);
         if (NULL == task) {
             LOG_ERROR("daemon_stop_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=the task donot exist|",
-                oKey.m_task_info.m_task_name,
-                oKey.m_task_info.m_task_id,
-                oKey.m_target_info.m_target_id);
+                key->m_task_info.m_task_name,
+                key->m_task_info.m_task_id,
+                key->m_target_info.m_target_id);
             
-            ret = -1;
+            ret = GVM_ERR_TASK_NOT_FOUND;
             break;
         }
 
@@ -778,11 +849,11 @@ int daemon_stop_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf
         if (!g_gvm_data->task_ops->chk_task_running(g_gvm_data, task)) {
             LOG_ERROR("daemon_stop_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=the task is not running now|",
-                oKey.m_task_info.m_task_name,
-                oKey.m_task_info.m_task_id,
-                oKey.m_target_info.m_target_id);
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id,
+                task->m_target_info.m_target_id);
             
-            ret = -1;
+            ret = GVM_ERR_TASK_IS_NOT_RUNNING;
             break;
         }
         
@@ -801,6 +872,7 @@ int daemon_stop_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf
                 task->m_task_info.m_task_id,
                 task->m_target_info.m_target_id);
             
+            ret = GVM_ERR_OPENVAS_PROC_FAIL;
             break;
         }
 
@@ -808,10 +880,11 @@ int daemon_stop_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf
         g_gvm_data->task_ops->reque_run_task(g_gvm_data, task);
     } while (0);
 
+    g_gvm_data->task_ops->free_task(key); 
     return ret;
 }
 
-static int getKeyTaskParam(const char* input, ListGvmTask_t task) {
+int getKeyTaskParam(const char* input, ListGvmTask_t task) {
     int ret = 0;
     const char* saveptr = NULL;
 
@@ -826,12 +899,21 @@ static int getKeyTaskParam(const char* input, ListGvmTask_t task) {
             break;
         }
 
-        ret = trimText(task->m_task_info.m_task_name);
+        ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_task_info.m_task_id,
+            ARR_SIZE(task->m_task_info.m_task_id), &saveptr);
         if (0 != ret) {
-            LOG_ERROR( "%s: trim parameter| text=%s| msg=invalid task name|",
+            LOG_ERROR("%s: parse parameter| text=%s| msg=invalid task id|",
                 __FUNCTION__, input);
             break;
         }
+
+        ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_target_info.m_target_id,
+            ARR_SIZE(task->m_target_info.m_target_id), &saveptr);
+        if (0 != ret) {
+            LOG_ERROR("%s: parse parameter| text=%s| msg=invalid target id|",
+                __FUNCTION__, input);
+            break;
+        } 
 
         ret = chkName(task->m_task_info.m_task_name);
         if (0 != ret) {
@@ -843,15 +925,7 @@ static int getKeyTaskParam(const char* input, ListGvmTask_t task) {
         /* target name is the same as task name */
         strncpy(task->m_target_info.m_target_name,
             task->m_task_info.m_task_name,
-            ARR_SIZE(task->m_target_info.m_target_name));
-
-        ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_task_info.m_task_id,
-            ARR_SIZE(task->m_task_info.m_task_id), &saveptr);
-        if (0 != ret) {
-            LOG_ERROR("%s: parse parameter| text=%s| msg=invalid task id|",
-                __FUNCTION__, input);
-            break;
-        }
+            ARR_SIZE(task->m_target_info.m_target_name)); 
 
         ret = chkUuid(task->m_task_info.m_task_id);
         if (0 != ret) {
@@ -859,15 +933,7 @@ static int getKeyTaskParam(const char* input, ListGvmTask_t task) {
                 __FUNCTION__, input, task->m_task_info.m_task_id);
             
             break;
-        }
-
-        ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_target_info.m_target_id,
-            ARR_SIZE(task->m_target_info.m_target_id), &saveptr);
-        if (0 != ret) {
-            LOG_ERROR("%s: parse parameter| text=%s| msg=invalid target id|",
-                __FUNCTION__, input);
-            break;
-        }
+        } 
 
         ret = chkUuid(task->m_target_info.m_target_id);
         if (0 != ret) {
@@ -885,24 +951,31 @@ static int getKeyTaskParam(const char* input, ListGvmTask_t task) {
 
 int daemon_delete_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
-    struct ListGvmTask oKey;
+    ListGvmTask_t key = NULL;
     ListGvmTask_t task = NULL;
 
+    key = g_gvm_data->task_ops->create_task();
+    if (NULL == key) {
+        LOG_ERROR("daemon_start_task| error=no memory|");
+        return GVM_ERR_INTERNAL_FAIL;
+    }
+
     do {
-        ret = getKeyTaskParam(input, &oKey);
+        ret = getKeyTaskParam(input, key);
         if (0 != ret) {
+            ret = GVM_ERR_PARAM_INVALID;
             break;
         }
 
-        task = g_gvm_data->task_ops->find_task(g_gvm_data, &oKey);
+        task = g_gvm_data->task_ops->find_task(g_gvm_data, key);
         if (NULL == task) {
             LOG_ERROR("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=the task donot exist|",
-                oKey.m_task_info.m_task_name,
-                oKey.m_task_info.m_task_id,
-                oKey.m_target_info.m_target_id);
+                key->m_task_info.m_task_name,
+                key->m_task_info.m_task_id,
+                key->m_target_info.m_target_id);
             
-            ret = -1;
+            ret = GVM_ERR_TASK_NOT_FOUND;
             break;
         }
 
@@ -911,28 +984,29 @@ int daemon_delete_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
             LOG_ERROR("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
                 " task_status=%d| chk_type=%d|"
                 " error=the task is busy now, please stop it first|",
-                oKey.m_task_info.m_task_name,
-                oKey.m_task_info.m_task_id,
-                oKey.m_target_info.m_target_id,
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id,
+                task->m_target_info.m_target_id,
                 getTaskStatus(task),
                 getTaskChkType(task));
             
-            ret = -1;
+            ret = GVM_ERR_TASK_IS_BUSY;
             break;
         }
 
-        ret = gvm_delete_task(task->m_task_info.m_task_id, tmpbuf, outbuf);
+        ret = gvm_option_delete_task(task->m_task_info.m_task_id, tmpbuf, outbuf);
         if (0 != ret) {
             LOG_ERROR("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=del gvm task error|",
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_task_id,
                 task->m_target_info.m_target_id);
-            
+
+            ret = GVM_ERR_OPENVAS_PROC_FAIL; 
             break;
         } 
 
-        ret = gvm_delete_target(task->m_target_info.m_target_id, tmpbuf, outbuf);
+        ret = gvm_option_delete_target(task->m_target_info.m_target_id, tmpbuf, outbuf);
         if (0 == ret) {
             LOG_INFO("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
                 " msg=del gvm target ok|",
@@ -945,24 +1019,44 @@ int daemon_delete_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_task_id,
                 task->m_target_info.m_target_id);
+
+            ret = 0;
         } 
 
-        /* delete schedule if has */
-        if ('\0' != task->m_task_info.m_schedule_id[0]) {
-            ret = gvm_delete_schedule(task->m_task_info.m_schedule_id, tmpbuf, outbuf);
-            if (0 == ret) {
-                LOG_INFO("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
-                    " msg=del gvm schedule ok|",
-                    task->m_task_info.m_task_name,
-                    task->m_task_info.m_task_id,
-                    task->m_target_info.m_target_id);
-            } else {
-                LOG_ERROR("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
-                    " msg=del gvm task and target ok, but del schedule error|",
-                    task->m_task_info.m_task_name,
-                    task->m_task_info.m_task_id,
-                    task->m_target_info.m_target_id);
-            } 
+        /* if this schedule is created, then delete it */ 
+        ret = gvm_option_delete_schedule(&task->m_task_info, tmpbuf, outbuf);
+        if (0 == ret) {
+            LOG_INFO("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
+                " msg=del gvm schedule ok|",
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id,
+                task->m_target_info.m_target_id);
+        } else {
+            LOG_ERROR("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
+                " msg=del gvm task and target ok, but del schedule error|",
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id,
+                task->m_target_info.m_target_id);
+
+            ret = 0;
+        } 
+
+        /* if this config is created, then delete it */ 
+        ret = gvm_option_delete_config(&task->m_task_info, tmpbuf, outbuf);
+        if (0 == ret) {
+            LOG_INFO("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
+                " msg=del gvm config ok|",
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id,
+                task->m_target_info.m_target_id);
+        } else {
+            LOG_ERROR("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
+                " msg=del gvm task and target ok, but del config error|",
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id,
+                task->m_target_info.m_target_id);
+
+            ret = 0;
         } 
 
         /* delete cache and files */ 
@@ -970,70 +1064,22 @@ int daemon_delete_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
         if (0 != ret) { 
             setTaskChkType(task, GVM_TASK_CHK_DELETED);
             
-            break;
-        }
-        
-        ret = 0;
+            ret = 0;
+        } 
     } while (0);
+
+    g_gvm_data->task_ops->free_task(key);
 
     return ret;
 }
 
 static int getCreateTaskParam(const char* input, ListGvmTask_t task) {
     int ret = 0;
-    int type = 0;
+    int n = 0;
     const char* saveptr = NULL;
-    char val[MAX_COMM_MIN_SIZE] = {0};
     
     do {
         saveptr = input;
-        ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_task_info.m_group_id,
-            ARR_SIZE(task->m_task_info.m_group_id), &saveptr);
-        if (0 != ret) {
-            LOG_ERROR("%s: parse parameter| text=%s| msg=invalid group|",
-                __FUNCTION__, input);
-            break;
-        }
-
-        ret = getGroupId(task->m_task_info.m_group_id, &type);
-        if (0 != ret) {
-            LOG_ERROR("%s: parse parameter| text=%s| group=%s| msg=invalid group|",
-                __FUNCTION__, input, task->m_task_info.m_group_id);
-            
-            break;
-        }
-
-        ret = getConfigId(type, task->m_task_info.m_config_id, 
-            ARR_SIZE(task->m_task_info.m_config_id));
-        if (0 > ret) {
-            LOG_ERROR("%s: parse parameter| text=%s| type=%d| msg=invalid group type|",
-                __FUNCTION__, input, type);
-            
-            ret = -1;
-            break;
-        }
-        
-        ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_task_info.m_group_name,
-            ARR_SIZE(task->m_task_info.m_group_name), &saveptr);
-        if (0 != ret) {
-            LOG_ERROR("%s: parse parameter| text=%s| msg=invalid group name|",
-                __FUNCTION__, input);
-            break;
-        }
-
-        ret = trimText(task->m_task_info.m_group_name);
-        if (0 != ret) {
-            LOG_ERROR( "%s: trim parameter| text=%s| msg=invalid group name|",
-                __FUNCTION__, input);
-            break;
-        }
-
-        ret = chkName(task->m_task_info.m_group_name);
-        if (0 != ret) {
-            LOG_ERROR( "%s: check parameter| group_name=%s| msg=invalid group name|",
-                __FUNCTION__, task->m_task_info.m_group_name);
-            break;
-        }
 
         ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_task_info.m_task_name,
             ARR_SIZE(task->m_task_info.m_task_name), &saveptr);
@@ -1042,25 +1088,22 @@ static int getCreateTaskParam(const char* input, ListGvmTask_t task) {
                 __FUNCTION__, input);
             break;
         }
-
-        ret = trimText(task->m_task_info.m_task_name);
+        
+        ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_task_info.m_group_id,
+            ARR_SIZE(task->m_task_info.m_group_id), &saveptr);
         if (0 != ret) {
-            LOG_ERROR( "%s: trim parameter| text=%s| msg=invalid task name|",
+            LOG_ERROR("%s: parse parameter| text=%s| msg=invalid group id|",
                 __FUNCTION__, input);
             break;
         }
 
-        ret = chkName(task->m_task_info.m_task_name);
+        ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_task_info.m_group_name,
+            ARR_SIZE(task->m_task_info.m_group_name), &saveptr);
         if (0 != ret) {
-            LOG_ERROR( "%s: check parameter| task_name=%s| msg=invalid task name|",
-                __FUNCTION__, task->m_task_info.m_task_name);
+            LOG_ERROR("%s: parse parameter| text=%s| msg=invalid group name|",
+                __FUNCTION__, input);
             break;
         }
-
-        /* target name is the same as task name */
-        strncpy(task->m_target_info.m_target_name,
-            task->m_task_info.m_task_name,
-            ARR_SIZE(task->m_target_info.m_target_name));
 
         ret = getNextToken(saveptr, OPENVAS_KB_DELIM, task->m_target_info.m_hosts, 
             ARR_SIZE(task->m_target_info.m_hosts), &saveptr);
@@ -1070,29 +1113,14 @@ static int getCreateTaskParam(const char* input, ListGvmTask_t task) {
             break;
         }
 
-        ret = escapeHosts(task->m_target_info.m_hosts);
-        if (0 != ret) {
-            LOG_ERROR( "%s: escape parameter| text=%s| msg=invalid hosts|",
-                __FUNCTION__, input);
-            break;
-        }
-
-        ret = chkHosts(task->m_target_info.m_hosts);
-        if (0 != ret) {
-            LOG_ERROR( "%s: check parameter| hosts=%s| msg=invalid hosts",
-                __FUNCTION__, task->m_target_info.m_hosts);
-            break;
-        }
-
-        ret = getNextToken(saveptr, OPENVAS_KB_DELIM, val, 
-            ARR_SIZE(val), &saveptr);
+        ret = getNextTokenInt(saveptr, OPENVAS_KB_DELIM, &n, &saveptr);
         if (0 != ret) {
             LOG_ERROR("%s: parse parameter| text=%s| msg=invalid _schedule_type|",
                 __FUNCTION__, input);
             break;
         }
 
-        task->m_task_info.m_schedule_type = (enum ICAL_DATE_REP_TYPE)atoi(val); 
+        task->m_task_info.m_schedule_type = (enum ICAL_DATE_REP_TYPE)n; 
 
         ret = getNextToken(saveptr, OPENVAS_KB_DELIM, 
             task->m_task_info.m_first_schedule_time, 
@@ -1113,6 +1141,37 @@ static int getCreateTaskParam(const char* input, ListGvmTask_t task) {
                 __FUNCTION__, input);
             break;
         }
+
+        ret = chkName(task->m_task_info.m_task_name);
+        if (0 != ret) {
+            LOG_ERROR( "%s: check parameter| task_name=%s| msg=invalid task name|",
+                __FUNCTION__, task->m_task_info.m_task_name);
+            break;
+        }
+
+        /* target name is the same as task name */
+        strncpy(task->m_target_info.m_target_name,
+            task->m_task_info.m_task_name,
+            ARR_SIZE(task->m_target_info.m_target_name));
+
+        ret = chkConfigInfo(task->m_task_info.m_group_id,
+            task->m_task_info.m_group_name);
+        if (0 != ret) {
+            LOG_ERROR("%s: check parameter| text=%s| group_id=%s|"
+                " group_name=%s| msg=invalid groups|",
+                __FUNCTION__, input, 
+                task->m_task_info.m_group_id,
+                task->m_task_info.m_group_name);
+            
+            break;
+        } 
+
+        ret = chkHosts(task->m_target_info.m_hosts);
+        if (0 != ret) {
+            LOG_ERROR( "%s: check parameter| hosts=%s| msg=invalid hosts",
+                __FUNCTION__, task->m_target_info.m_hosts);
+            break;
+        } 
 
         ret = chkScheduleParam(task->m_task_info.m_schedule_type, 
             task->m_task_info.m_first_schedule_time, 
@@ -1141,31 +1200,17 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
     int ret = 0;
     ListGvmTask_t oldtask = NULL;
     ListGvmTask_t task = NULL;
-    char utc_schedule_time[MAX_TIMESTAMP_SIZE] = {0};
 
     task = g_gvm_data->task_ops->create_task();
     if (NULL == task) {
-        LOG_ERROR("%s| inputlen=%d| input=%s| error=no memory for task|",
-            __FUNCTION__, inputlen, input);
-        return -1;
+        LOG_ERROR("daemon_start_task| error=no memory|");
+        return GVM_ERR_INTERNAL_FAIL;
     }
 
     do {
         ret = getCreateTaskParam(input, task);
         if (0 != ret) {
-            break;
-        }
-
-        ret = local2SchedTime(utc_schedule_time, ARR_SIZE(utc_schedule_time),
-            task->m_task_info.m_first_schedule_time);
-        if (0 != ret) {
-            LOG_ERROR("daemon_create_task| name=%s| group_name=%s| hosts=%s|"
-                " schedule_time=%s| msg=invalid schedule_time|",
-                task->m_task_info.m_task_name,
-                task->m_task_info.m_group_name,
-                task->m_target_info.m_hosts,
-                task->m_task_info.m_first_schedule_time);
-            
+            ret = GVM_ERR_PARAM_INVALID;
             break;
         }
         
@@ -1177,9 +1222,8 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_group_name,
                 task->m_target_info.m_hosts);
-            
-            /* need free task at end */
-            ret = -1;
+  
+            ret = GVM_ERR_TASK_ALREADY_EXISTS;
             break;
         }
 
@@ -1189,14 +1233,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
             task->m_target_info.m_target_id, 
             ARR_SIZE(task->m_target_info.m_target_id), 
             tmpbuf, outbuf);
-        if (0 == ret) {
-            LOG_INFO("daemon_create_task| target_id=%s| name=%s| hosts=%s| portlist=%s|"
-                " msg=create target ok|",
-                task->m_target_info.m_target_id,
-                task->m_target_info.m_target_name, 
-                task->m_target_info.m_hosts, 
-                task->m_target_info.m_portlist_id);
-        } else {
+        if (0 != ret) {
             LOG_ERROR("daemon_create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
                 " target_id=%s| schedule_id=%s|"
                 " msg=create target fail|",
@@ -1206,31 +1243,16 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
                 task->m_task_info.m_config_id, 
                 task->m_target_info.m_target_id,
                 task->m_task_info.m_schedule_id);
+
+            ret = GVM_ERR_OPENVAS_PROC_FAIL;
             break;
         }
 
-        ret = gvm_create_schedule(task->m_task_info.m_task_name,
-            task->m_task_info.m_schedule_type,
-            utc_schedule_time, 
-            task->m_task_info.m_schedule_list,
-            task->m_task_info.m_schedule_id,
-            ARR_SIZE(task->m_task_info.m_schedule_id),
-            tmpbuf, outbuf);
-        if (0 == ret) {
-            LOG_INFO("daemon_create_task| task_id=%s| name=%s| hosts=%s| portlist=%s|"
-                " config_id=%s| target_id=%s| schedule_id=%s|"
-                " msg=create schedule ok|",
-                task->m_task_info.m_task_id,
-                task->m_task_info.m_task_name,
-                task->m_target_info.m_hosts, 
-                task->m_target_info.m_portlist_id,
-                task->m_task_info.m_config_id, 
-                task->m_target_info.m_target_id,
-                task->m_task_info.m_schedule_id);
-        } else {
+        ret = gvm_option_create_schedule(&task->m_task_info, tmpbuf, outbuf); 
+        if (0 != ret) {
             LOG_ERROR("daemon_create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
                 " target_id=%s| schedule_id=%s|"
-                " msg=create schedule fail, so delete new target|",
+                " msg=create schedule fail|",
                 task->m_task_info.m_task_name,
                 task->m_target_info.m_hosts, 
                 task->m_target_info.m_portlist_id,
@@ -1238,8 +1260,23 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
                 task->m_target_info.m_target_id,
                 task->m_task_info.m_schedule_id);
 
-            /* delete the created target */
-            gvm_delete_target(task->m_target_info.m_target_id, tmpbuf, outbuf);
+            ret = GVM_ERR_OPENVAS_PROC_FAIL;
+            break;
+        } 
+
+        ret = gvm_option_create_config(&task->m_task_info, tmpbuf, outbuf);
+        if (0 != ret) {
+            LOG_ERROR("daemon_create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
+                " target_id=%s| schedule_id=%s|"
+                " msg=create config fail|",
+                task->m_task_info.m_task_name,
+                task->m_target_info.m_hosts, 
+                task->m_target_info.m_portlist_id,
+                task->m_task_info.m_config_id, 
+                task->m_target_info.m_target_id,
+                task->m_task_info.m_schedule_id);
+
+            ret = GVM_ERR_OPENVAS_PROC_FAIL;
             break;
         }
         
@@ -1264,7 +1301,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
         } else {
             LOG_ERROR("daemon_create_task| name=%s| hosts=%s| portlist=%s| config_id=%s|"
                 " target_id=%s| schedule_id=%s|"
-                " msg=create task fail, so delete new target and schedule|",
+                " msg=create task fail|",
                 task->m_task_info.m_task_name,
                 task->m_target_info.m_hosts, 
                 task->m_target_info.m_portlist_id,
@@ -1272,17 +1309,12 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
                 task->m_target_info.m_target_id,
                 task->m_task_info.m_schedule_id);
 
-            /* delete the created target and schedule */
-            gvm_delete_target(task->m_target_info.m_target_id, tmpbuf, outbuf);
-
-            if ('\0' != task->m_task_info.m_schedule_id[0]) {
-                gvm_delete_schedule(task->m_task_info.m_schedule_id, tmpbuf, outbuf);
-            }
+            ret = GVM_ERR_OPENVAS_PROC_FAIL;
             break;
         }
 
         /* create task ok, record to file */
-        getTimeStamp(task->m_task_info.m_create_time, 
+        nowTimeStamp(task->m_task_info.m_create_time, 
             ARR_SIZE(task->m_task_info.m_create_time));
 
         strncpy(task->m_task_info.m_modify_time, 
@@ -1293,30 +1325,36 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
         setTaskChkType(task, GVM_TASK_CHK_TASK);
          
         ret = g_gvm_data->task_ops->add_task(g_gvm_data, task);
-        if (0 == ret) { 
-            LOG_INFO("daemon_create_task| name=%s| task_id=%s| msg=add task ok|",
-                task->m_task_info.m_task_name,
-                task->m_task_info.m_task_id);
-            
-            g_gvm_data->task_ops->write_task_file(g_gvm_data, tmpbuf); 
-
-            addTaskChecks(g_gvm_data, task);
-
-            /* avoid to free ptr */
-            task = NULL;
-        } else {
+        if (0 != ret) {
             LOG_ERROR("daemon_create_task| name=%s| task_id=%s| msg=add task error|",
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_task_id);
-            
+
+            ret = GVM_ERR_INTERNAL_FAIL; 
             break;
         }
+
+        LOG_INFO("daemon_create_task| name=%s| task_id=%s| msg=add task ok|",
+            task->m_task_info.m_task_name,
+            task->m_task_info.m_task_id);
+        
+        g_gvm_data->task_ops->write_task_file(g_gvm_data, tmpbuf); 
+
+        /* reuse the task ptr */
+        addTaskChecks(g_gvm_data, task);
+
+        /* success here */
+        return 0;
     } while (0);
 
-    if (NULL != task) {
-        /* free unused data */
-        g_gvm_data->task_ops->free_task(task);    
-    }
+    gvm_option_delete_task(task->m_task_info.m_task_id, tmpbuf, outbuf);
+    gvm_option_delete_target(task->m_target_info.m_target_id, tmpbuf, outbuf);
+    
+    gvm_option_delete_schedule(&task->m_task_info, tmpbuf, outbuf);
+    gvm_option_delete_config(&task->m_task_info, tmpbuf, outbuf);
+
+    /* free unused data */
+    g_gvm_data->task_ops->free_task(task);    
     
     return ret;
 }
@@ -1506,11 +1544,12 @@ static void printAllTaskRecs(GvmDataList_t data, int type) {
 
 static int parseTaskRecord(GvmDataList_t data, kb_buf_t cache) {
     int ret = 0;
+    int on_off = 0;
+    int type = 0;
     char* psz = NULL;
     char* start = NULL;
     char* stop = NULL;
     ListGvmTask_t task = NULL;
-    char val[MAX_COMM_SIZE] = {0};
 
     psz = cache->m_buf;
 
@@ -1545,14 +1584,14 @@ static int parseTaskRecord(GvmDataList_t data, kb_buf_t cache) {
                         break;
                     }
                     
-                    ret = getPatternKey(start, "group_id", CUSTOM_GROUP_ID_PATTERN, 
+                    ret = getPatternKey(start, "group_id", CUSTOM_COMM_PATTERN, 
                         task->m_task_info.m_group_id, 
                         ARR_SIZE(task->m_task_info.m_group_id));
                     if (0 != ret) {
                         break;
                     }
                     
-                    ret = getPatternKey(start, "group_name", GVM_NAME_PATTERN, 
+                    ret = getPatternKey(start, "group_name", CUSTOM_COMM_PATTERN, 
                         task->m_task_info.m_group_name, 
                         ARR_SIZE(task->m_task_info.m_group_name));
                     if (0 != ret) {
@@ -1565,6 +1604,14 @@ static int parseTaskRecord(GvmDataList_t data, kb_buf_t cache) {
                     if (0 != ret) {
                         break;
                     }
+
+                    ret = getPatternKeyInt(start, "config_created", 
+                        CUSTOM_ON_OFF_PATTERN, &on_off);
+                    if (0 != ret) {
+                        break;
+                    }
+
+                    task->m_task_info.m_config_created = (unsigned char)on_off;
                     
                     ret = getPatternKey(start, "target_id", UUID_REG_PATTERN, 
                         task->m_target_info.m_target_id, 
@@ -1580,38 +1627,45 @@ static int parseTaskRecord(GvmDataList_t data, kb_buf_t cache) {
                         break;
                     }
                     
-                    ret = getPatternKey(start, "hosts", CUSTOM_HOSTS_PATTERN, 
+                    ret = getPatternKey(start, "hosts", CUSTOM_COMM_PATTERN, 
                         task->m_target_info.m_hosts, 
                         ARR_SIZE(task->m_target_info.m_hosts));
                     if (0 != ret) {
                         break;
                     }
 
-                    ret = getPatternKey(start, "schedule_type", 
+                    ret = getPatternKeyInt(start, "schedule_type", 
                         CUSTOM_SCHEDULE_TYPE_PATTERN, 
-                        val, ARR_SIZE(val));
+                        &type);
                     if (0 != ret) {
                         break;
                     }
 
-                    ret = getPatternKey(start, "schedule_id", UUID_REG_PATTERN_OR_NULL, 
+                    ret = getPatternKey(start, "schedule_id", 
+                        CUSTOM_MATCH_OR_NULL(UUID_REG_PATTERN), 
                         task->m_task_info.m_schedule_id, 
                         ARR_SIZE(task->m_task_info.m_schedule_id));
                     if (0 != ret) {
                         break;
                     } 
 
-                    task->m_task_info.m_schedule_type = (enum ICAL_DATE_REP_TYPE)atoi(val);
+                    ret = getPatternKeyInt(start, "schedule_created", 
+                        CUSTOM_ON_OFF_PATTERN, &on_off);
+                    if (0 != ret) {
+                        break;
+                    }
+
+                    task->m_task_info.m_schedule_created = (unsigned char)on_off;
                     
                     ret = getPatternKey(start, "schedule_time", 
-                        CUSTOM_TIME_STAMP_PATTERN_OR_NULL, 
+                        CUSTOM_MATCH_OR_NULL(CUSTOM_TIME_STAMP_PATTERN), 
                         task->m_task_info.m_first_schedule_time, 
                         ARR_SIZE(task->m_task_info.m_first_schedule_time));
                     if (0 != ret) {
                         break;
                     }
 
-                    ret = getPatternKey(start, "schedule_list", CUSTOM_SCHEDULE_LIST_PATTERN, 
+                    ret = getPatternKey(start, "schedule_list", CUSTOM_COMM_PATTERN, 
                         task->m_task_info.m_schedule_list, 
                         ARR_SIZE(task->m_task_info.m_schedule_list));
                     if (0 != ret) {
@@ -1624,6 +1678,28 @@ static int parseTaskRecord(GvmDataList_t data, kb_buf_t cache) {
                     if (0 != ret) {
                         break;
                     }
+
+                    ret = chkHosts(task->m_target_info.m_hosts);
+                    if (0 != ret) {
+                        LOG_ERROR("parse_record| hosts=%s| msg=invalid hosts|", 
+                            task->m_target_info.m_hosts);
+                        break;
+                    }
+
+                    ret = chkScheduleParam(type,
+                        task->m_task_info.m_first_schedule_time,
+                        task->m_task_info.m_schedule_list);
+                    if (0 != ret) {
+                        LOG_ERROR( "parse_record| schedul_type=%d| schedul_time=%s|"
+                            " schedul_list=%s| msg=invalid schedule parameters|", 
+                            type,
+                            task->m_task_info.m_first_schedule_time, 
+                            task->m_task_info.m_schedule_list);
+                                    
+                        break;
+                    }
+
+                    task->m_task_info.m_schedule_type = (enum ICAL_DATE_REP_TYPE)type;
 
                     /* target name is consistent as task name */
                     strncpy(task->m_target_info.m_target_name,
@@ -1703,6 +1779,7 @@ static int writeTaskRecord(void* ctx, LList_t _list) {
         task->m_task_info.m_group_id,
         task->m_task_info.m_group_name, 
         task->m_task_info.m_config_id,
+        (int)task->m_task_info.m_config_created,
         
         task->m_target_info.m_target_id,
         task->m_target_info.m_portlist_id,
@@ -1710,6 +1787,8 @@ static int writeTaskRecord(void* ctx, LList_t _list) {
 
         task->m_task_info.m_schedule_type,
         task->m_task_info.m_schedule_id, 
+        (int)task->m_task_info.m_schedule_created,
+        
         task->m_task_info.m_first_schedule_time,
         task->m_task_info.m_schedule_list,
         
@@ -1770,7 +1849,6 @@ static int parseTaskStatusRecord(GvmDataList_t data,
     int ret = 0;
     int n = 0;
     char uuid[MAX_UUID_SIZE] = {0};
-    char val[MAX_COMM_SIZE] = {0};
     char* start = NULL;
     char* stop = NULL;
 
@@ -1804,7 +1882,8 @@ static int parseTaskStatusRecord(GvmDataList_t data,
                         break;
                     } 
                     
-                    ret = getPatternKey(start, "start_time", CUSTOM_TIME_STAMP_PATTERN_OR_NULL, 
+                    ret = getPatternKey(start, "start_time", 
+                        CUSTOM_MATCH_OR_NULL(CUSTOM_TIME_STAMP_PATTERN),
                         task->m_report_info.m_start_time, 
                         ARR_SIZE(task->m_report_info.m_start_time));
                     if (0 != ret) {
@@ -1812,75 +1891,69 @@ static int parseTaskStatusRecord(GvmDataList_t data,
                     }
 
 
-                    ret = getPatternKey(start, "stop_time", CUSTOM_TIME_STAMP_PATTERN_OR_NULL, 
+                    ret = getPatternKey(start, "stop_time", 
+                        CUSTOM_MATCH_OR_NULL(CUSTOM_TIME_STAMP_PATTERN), 
                         task->m_report_info.m_stop_time, 
                         ARR_SIZE(task->m_report_info.m_stop_time));
                     if (0 != ret) {
                         break;
                     }
 
-                    ret = getPatternKey(start, "status", CUSTOM_DIGIT_NUM_PATTERN, 
-                        val, ARR_SIZE(val));
+                    ret = getPatternKeyInt(start, "status", CUSTOM_DIGIT_NUM_PATTERN, &n);
                     if (0 != ret) {
                         break;
                     }
 
-                    n = atoi(val);
                     if (GVM_TASK_CREATE <= n && GVM_TASK_ERROR > n) {
                         setTaskStatus(task, (enum GVM_TASK_STATUS)n);
                     } else {
                         LOG_ERROR("parse_status| task_name=%s| task_id=%s|"
                             " start_time=%s| stop_time=%s|"
-                            " status=%s| msg=invalid status|",
+                            " status=%d| msg=invalid status|",
                             task->m_task_info.m_task_name,
                             task->m_task_info.m_task_id,
                             task->m_report_info.m_start_time,
                             task->m_report_info.m_stop_time,
-                            val);
+                            n);
                         
                         ret = -1;
                         break;
                     }
 
-                    ret = getPatternKey(start, "chk_type", CUSTOM_DIGIT_NUM_PATTERN, 
-                        val, ARR_SIZE(val));
+                    ret = getPatternKeyInt(start, "chk_type", CUSTOM_DIGIT_NUM_PATTERN, &n);
                     if (0 != ret) {
                         break;
                     }
 
-                    n = atoi(val);
                     if (GVM_TASK_CHK_TASK <= n && GVM_TASK_CHK_END > n) {
                         setTaskChkType(task, (enum GVM_TASK_CHK_TYPE)n);
                     } else {
                         LOG_ERROR("parse_chk_type| task_name=%s| task_id=%s|"
                             " start_time=%s| stop_time=%s|"
-                            " chk_type=%s| msg=invalid chk_type|",
+                            " chk_type=%d| msg=invalid chk_type|",
                             task->m_task_info.m_task_name,
                             task->m_task_info.m_task_id,
                             task->m_report_info.m_start_time,
                             task->m_report_info.m_stop_time,
-                            val);
+                            n);
                         
                         ret = -1;
                         break;
                     }
 
-                    memset(val, 0, ARR_SIZE(val));
-                    ret = getPatternKey(start, "progress", CUSTOM_DIGIT_NUM_PATTERN, 
-                        val, ARR_SIZE(val));
+                    ret = getPatternKeyInt(start, "progress", CUSTOM_DIGIT_NUM_PATTERN, &n);
                     if (0 != ret) {
                         break;
                     }
 
-                    n = atoi(val);
                     if (0 <= n && 100 >= n) {
                         setTaskProgress(task, n);
                     } else {
                         LOG_ERROR("parse_status| task_name=%s| task_id=%s|"
-                            " progress=%s| msg=invalid progress|",
+                            " progress=%d| msg=invalid progress|",
                             task->m_task_info.m_task_name,
                             task->m_task_info.m_task_id,
-                            val);
+                            n);
                         
                         ret = -1;
                         break;
@@ -1895,7 +1968,8 @@ static int parseTaskStatusRecord(GvmDataList_t data,
                     }
 
                     /* get last report id */
-                    ret = getPatternKey(start, "last_report_id", UUID_REG_PATTERN_OR_NULL, 
+                    ret = getPatternKey(start, "last_report_id", 
+                        CUSTOM_MATCH_OR_NULL(UUID_REG_PATTERN),
                         task->m_report_info.m_last_report_id, 
                         ARR_SIZE(task->m_report_info.m_last_report_id));
                     if (0 != ret) {
@@ -2019,8 +2093,8 @@ int delTaskRelationFiles(GvmDataList_t data, ListGvmTask_t task) {
         data->m_task_priv_dir, task->m_task_info.m_task_name);
 
     /* delete status file and result file if exists, */
-    ret = unlink(statusFile);
-    ret = unlink(resultFile);
+    ret = deleteFile(statusFile);
+    ret = deleteFile(resultFile);
     return 0;
 }
 

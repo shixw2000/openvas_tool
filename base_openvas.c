@@ -2,6 +2,8 @@
 #include<stdarg.h>
 #include<stdlib.h> 
 #include<errno.h>
+#include<sys/types.h>
+#include<sys/stat.h> 
 #include<unistd.h> 
 #include<hiredis.h>
 
@@ -366,92 +368,151 @@ static const char* DEF_LOG_NAME[] = {
     "DEBUG"
 };
 
-static char g_buffer[MAX_CACHE_SIZE] = {0};
+static int writeLog(const char path[], const kb_buf_t buff) {
+    int cnt = 0;
+    FILE* file = NULL; 
+
+    if (NULL != path && '\0' != path[0]) {
+        file = fopen(path, "ab");
+        if (NULL != file) { 
+            cnt = fwrite(buff->m_buf, 1, buff->m_size, file); 
+            fclose(file);
+        } 
+    }
+
+    return cnt;
+}
+
+static int formatLog(const long long* time, kb_buf_t buff,
+    int level, const char format[], va_list ap) {
+    int total = 0;
+    int cnt = 0;
+    int left = 0;
+    char timestamp[MAX_TIMESTAMP_SIZE] = {0};
+
+    total = 0;
+    left = (int)(buff->m_capacity - 2);
+    
+    getTimeStamp(time, timestamp, ARR_SIZE(timestamp)); 
+    
+    cnt = (int)snprintf(&buff->m_buf[total], left, "<%s>[%s]:",
+        DEF_LOG_NAME[level+1], timestamp);
+
+    total += cnt;
+    left -= cnt;
+    
+    cnt = (int)vsnprintf(&buff->m_buf[total], left, format, ap); 
+    if (0 < cnt && cnt < left) {
+        total += cnt;
+        left -= cnt;
+
+        buff->m_buf[ total++ ] = '\n'; 
+    } else if (cnt >= left) {
+        /* truncate too long text */
+        total += left;
+        left = 0;
+
+        buff->m_buf[ total++ ] = '\n'; 
+    } else {
+        /* ignore empty text */
+        total = 0; 
+    }
+
+    buff->m_buf[total] = '\0'; 
+    buff->m_size = total;
+    return total;
+}
+
+int getLogPath(const long long* time, char path[], int maxlen) {
+    int ret = 0;
+    char date[MAX_TIMESTAMP_SIZE] = {0}; 
+    
+    time2asc(time, "%Y%m%d", date, ARR_SIZE(date), 1);
+
+    ret = snprintf(path, maxlen, LOG_PATH_MARK, date);
+    if (ret < maxlen) {
+        return 0;
+    } else {
+        path[0] = '\0';
+        return -1;
+    }
+}
+
+int FileLog(int level, const char format[], ...) { 
+    int ret = 0;
+    int cnt = 0;
+    long long time = 0;
+    va_list ap;
+    struct kb_buf buff;
+    char path[MAX_FILENAME_PATH_SIZE] = {0};
+
+    if (level <= g_log_level) {
+        ret = genBuf(MAX_CACHE_SIZE, &buff);
+        if (0 == ret) {
+            time = getTime();
+            
+            va_start(ap, format);
+            cnt = formatLog(&time, &buff, level, format, ap);
+            va_end(ap); 
+
+            if (0 < cnt) {
+                ret = getLogPath(&time, path, ARR_SIZE(path));
+                if (0 == ret) {
+                    cnt = writeLog(path, &buff);
+                } else {
+                    cnt = 0;
+                }
+            } 
+
+            freeBuf(&buff);
+        }
+    }
+
+    return cnt;
+}
 
 int MyLog(int level, const char format[], ...) {
-    size_t left = 0;
-    int size = 0;
+    int ret = 0;
     int cnt = 0;
+    long long time = 0;
     va_list ap;
-    char timestamp[MAX_TIMESTAMP_SIZE] = {0};
+    struct kb_buf buff;
 
     if (level <= g_log_level) {
-        getTimeStamp(timestamp, MAX_TIMESTAMP_SIZE);
-        
-        left = ARR_SIZE(g_buffer) - 2;
-        
-        cnt = snprintf(&g_buffer[size], left, "<%s>[%s]:",
-            DEF_LOG_NAME[level+1], timestamp);
-
-        size += cnt;
-        left -= cnt;
-        
-        va_start(ap, format);
-        cnt = vsnprintf(&g_buffer[size], left, format, ap);
-        va_end(ap); 
-
-        if (0 < cnt && cnt < left) {
-            size += cnt;
-            left -= cnt;
+        ret = genBuf(MAX_CACHE_SIZE, &buff);
+        if (0 == ret) {
+            time = getTime();
             
-            g_buffer[size++] = '\n'; 
-            g_buffer[size] = '\0';
+            va_start(ap, format);
+            cnt = formatLog(&time, &buff, level, format, ap);
+            va_end(ap); 
 
-            cnt = fwrite(g_buffer, 1, size, stdout);
-            return 0;
-        }
-    }
-
-    return -1;
-}
-
-int FileLog(int level, const char format[], ...) {
-    size_t left = 0;
-    int size = 0;
-    int cnt = 0;
-    FILE* file = NULL;
-    va_list ap;
-    char timestamp[MAX_TIMESTAMP_SIZE] = {0};
-
-    if (level <= g_log_level) {
-        getTimeStamp(timestamp, MAX_TIMESTAMP_SIZE);
-        
-        left = ARR_SIZE(g_buffer) - 2;
-        
-        cnt = snprintf(&g_buffer[size], left, "<%s>[%s]:",
-            DEF_LOG_NAME[level+1], timestamp);
-
-        size += cnt;
-        left -= cnt;
-        
-        va_start(ap, format);
-        cnt = vsnprintf(&g_buffer[size], left, format, ap);
-        va_end(ap); 
-
-        if (0 < cnt && cnt < left) {
-            size += cnt;
-            left -= cnt;
-
-            g_buffer[size++] = '\n'; 
-            g_buffer[size] = '\0';
-
-            file = fopen(LOG_PATH, "ab");
-            if (NULL != file) { 
-                cnt = fwrite(g_buffer, 1, size, file); 
-            
-                fclose(file);
-
-                return 0;
+            if (0 < cnt) {
+                cnt = fwrite(buff.m_buf, 1, buff.m_size, stdout);
             } 
+
+            freeBuf(&buff);
         }
     }
 
-    return -1;
+    return cnt;
 }
+
 
 long long getTime() {
     return time(NULL);    
 }
+
+long long getTimeLastDays(int nday) { 
+    long long time = 0;
+
+    time = getTime() - DEF_DAY_SECONDS * nday;
+    if (0 < time) {
+        return time;
+    } else {
+        return 0;
+    }    
+} 
 
 long long getClkTime() {
     struct timespec res = {0, 0};
@@ -504,13 +565,11 @@ int time2asc(const long long* ptime, const char format[],
     }
 }
 
-int getTimeStamp(char psz[], int maxlen) {
+int getTimeStamp(const long long* time, char psz[], int maxlen) {
     int ret = 0; 
-    long long timestamp = 0;
-
-    timestamp = getTime();
-    if (0 < timestamp) {
-        ret = time2asc(&timestamp, "%Y-%m-%d %H:%M:%S", psz, maxlen, 1);
+    
+    if (NULL != time && 0 < *time) {
+        ret = time2asc(time, "%Y-%m-%d %H:%M:%S", psz, maxlen, 1);
     } else {
         psz[0] = '\0';
         ret = -1;
@@ -518,6 +577,16 @@ int getTimeStamp(char psz[], int maxlen) {
     
     return ret;
 }
+
+int nowTimeStamp(char psz[], int maxlen) {
+    int ret = 0; 
+    long long time = 0;
+
+    time = getTime();
+    ret = time2asc(&time, "%Y-%m-%d %H:%M:%S", psz, maxlen, 1);
+    
+    return ret;
+} 
 
 int asc2time(long long* ptime, const char text[], 
     const char format[], int is_local) {
@@ -578,9 +647,35 @@ int local2SchedTime(char sched[], int maxlen, const char local[]) {
         if (0 == ret) {
             ret = time2asc(&time, CUSTOM_SCHEDULE_TIME_MARK, sched, maxlen, 0);
         }
-    }
+    } 
 
     return ret;
 }
 
+/* delete a file(if symbolic, then the link itself), but not a directory
+    return: 0-delete, 1:no file, -2: fail for directory, -1: error
+*/
+int deleteFile(const char path[]) {
+    int ret = 0;
+    struct stat buf;
+
+    ret = lstat(path, &buf);
+    if (0 == ret) {
+        if (!S_ISDIR(buf.st_mode)) {
+            ret = unlink(path);
+            if (0 != ret) {
+                ret = -1;
+            }
+        } else {
+            ret = -2;
+        }
+    } else if (ENOENT == errno) {
+        /* file not exists */
+        ret = 1;
+    } else {
+        ret = -1;
+    }
+
+    return ret;
+}
 

@@ -48,7 +48,8 @@ int openvas_cmd_entry(const char* cmd, int cmdlen,
             } else {
                 LOG_ERROR( "php_entry| cmd=[%d]%s| param=[%d]%s| error=no memory|",
                     cmdlen, cmd, paramlen, param);
-                ret = -1;
+                
+                ret = GVM_ERR_INTERNAL_FAIL;
             }
 
             return ret;
@@ -57,7 +58,7 @@ int openvas_cmd_entry(const char* cmd, int cmdlen,
 
     LOG_ERROR( "php_entry| cmd=[%d]%s| param=[%d]%s| error=invalid params|",
         cmdlen, cmd, paramlen, param);
-    return -1;
+    return GVM_ERR_PARAM_INVALID;
 }
 
 

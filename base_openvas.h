@@ -13,7 +13,7 @@ extern "C" {
 #define ERRCODE errno
 #define ERRMSG strerror(errno)
 
-#define LOG_PATH "/usr/local/openvas/gvm/var/log/gvm/gvm_util.log"
+#define LOG_PATH_MARK "/usr/local/openvas/gvm/var/log/gvm/gvm_util_%s.log"
 
 #if 1
 #define LOG_DEBUG(format, ...) FileLog(1, format, ##__VA_ARGS__)
@@ -84,7 +84,17 @@ enum {
     MAX_TIMESTAMP_SIZE = 32,
     MAX_FILENAME_PATH_SIZE = 256,
     MAX_SCHEDULE_LIST_SIZE = 256,
+
+    MAX_MEM_LIST_SIZE = 4096,
+
+    DEF_DAY_SECONDS = 24 * 3600,
+
 };
+
+#define CUSTOM_COMM_PATTERN "[^\\'`\"]*"
+#define CUSTOM_SCHEDULE_TYPE_PATTERN "[0-9]"
+#define CUSTOM_SCHEDULE_TIME_MARK "%Y%m%dT%H%M%SZ"
+#define CUSTOM_ON_OFF_PATTERN "[01]"
 
 enum ICAL_DATE_REP_TYPE {
     ICAL_DATE_NONE,
@@ -95,12 +105,6 @@ enum ICAL_DATE_REP_TYPE {
     
     ICAL_DATE_END
 };
-
-
-#define CUSTOM_SCHEDULE_TYPE_PATTERN "[0-9]"
-#define CUSTOM_SCHEDULE_TIME_MARK "%Y%m%dT%H%M%SZ"
-#define CUSTOM_SCHEDULE_LIST_PATTERN "[-0-9a-zA-Z,]{0,128}" 
-
 
 extern const struct kb_operations *KBDefaultOperations;
 
@@ -137,11 +141,14 @@ static inline int kb_del_items(kb_t kb, const char *name) {
 
 extern int genBuf(size_t len, kb_buf_t buffer);
 extern void freeBuf(kb_buf_t buffer);
+
+extern int getLogPath(const long long* time, char path[], int maxlen);
 extern int MyLog(int level, const char format[], ...);
 extern int FileLog(int level, const char format[], ...);
 extern void setMyLogLevel(int level);
 
 extern long long getTime();
+extern long long getTimeLastDays(int nday);
 extern long long getClkTime();
 
 extern int time2asc(const long long* ptime, const char format[], 
@@ -150,9 +157,12 @@ extern int time2asc(const long long* ptime, const char format[],
 extern int asc2time(long long* ptime, const char text[], 
     const char format[], int is_local);
 
-extern int getTimeStamp(char psz[], int maxlen);
+extern int getTimeStamp(const long long* time, char psz[], int maxlen);
+extern int nowTimeStamp(char psz[], int maxlen);
 extern int utc2LocalTime(char local[], int maxlen, const char utc[]);
 extern int local2SchedTime(char sched[], int maxlen, const char local[]);
+
+extern int deleteFile(const char path[]);
 
 #ifdef __cplusplus
 }

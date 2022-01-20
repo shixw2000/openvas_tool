@@ -24,6 +24,13 @@
 
 #define REQ_GVM_DELETE_SCHEDULE_MARK "<delete_schedule schedule_id=\"%s\"/>" 
 
+#define REQ_GVM_CREAT_CONFIG_EX_MARK "<create_config><name>wEb_%s</name>"\
+"<comment>%s</comment>"\
+"<usage_type>scan</usage_type>"\
+"<muli_copy>%s</muli_copy>"
+
+#define REQ_GVM_DELETE_CONFIG_MARK "<delete_config config_id=\"%s\"/>"
+
 
 //#define NODE_TEXT(doc, node) xmlNodeGetContent(node)
 #define NODE_TEXT(doc, node) xmlNodeListGetString(doc, node->xmlChildrenNode, 0)
@@ -348,15 +355,7 @@ int gvm_create_schedule(const char* name, enum ICAL_DATE_REP_TYPE type,
     do {  
         uuid[0] = '\0';
         
-        if (ICAL_DATE_NONE == type) {
-            LOG_INFO("create_schedule| uuid=%s| name=%s|"
-                " first_time=%s| type=%d| list=%s| msg=ok, no need to create schedule|",
-                uuid, name, firstRun, type, _list);
-                
-            /* no need uuid */
-            ret = 0;
-            break;
-        } else if (ICAL_DATE_ONCE == type) {
+        if (ICAL_DATE_ONCE == type) {
             tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity, 
                 REQ_GVM_CREAT_SCHEDULE_MARK,
                 name, firstRun, 
@@ -378,9 +377,9 @@ int gvm_create_schedule(const char* name, enum ICAL_DATE_REP_TYPE type,
                 name, firstRun, 
                 "RRULE:FREQ=MONTHLY;BYMONTHDAY=", _list, DEF_WIN_CR_LF); 
         } else {
-            LOG_ERROR("gvm_create_schedule| name=%s| first_time=%s| type=%d| list=%s|"
+            LOG_ERROR("gvm_create_schedule| name=%s| type=%d| first_time=%s| list=%s|"
                 " msg=invalid type|",
-                name, firstRun, type, _list);
+                name, type, firstRun, _list);
             
             ret = -1;
             break;
@@ -411,6 +410,46 @@ int gvm_create_schedule(const char* name, enum ICAL_DATE_REP_TYPE type,
     return ret;
 }
 
+int gvm_option_create_schedule(gvm_task_info_t info,
+    kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    int ret = 0;
+    char utc_schedule_time[MAX_TIMESTAMP_SIZE] = {0};
+
+    do {
+        info->m_schedule_id[0] = '\0';
+        info->m_schedule_created = (unsigned char)0;
+        
+        if (ICAL_DATE_NONE != info->m_schedule_type) {
+            ret = local2SchedTime(utc_schedule_time, 
+                ARR_SIZE(utc_schedule_time),
+                info->m_first_schedule_time);
+            if (0 != ret) {
+                LOG_ERROR("option_create_schedule|"
+                    " schedule_time=%s| msg=invalid schedule_time|",
+                    info->m_first_schedule_time);
+
+                ret = GVM_ERR_PARAM_INVALID; 
+                break;
+            }
+            
+            ret = gvm_create_schedule(info->m_task_name, info->m_schedule_type,
+                utc_schedule_time, info->m_schedule_list,
+                info->m_schedule_id, ARR_SIZE(info->m_schedule_id),
+                tmpbuf, outbuf);
+            if (0 == ret) {
+                info->m_schedule_created = (unsigned char)1;
+            } else { 
+                ret = GVM_ERR_OPENVAS_PROC_FAIL;
+                break;
+            }
+        } 
+
+    } while (0);
+
+    return ret;
+}
+
+
 int gvm_delete_schedule(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
 
@@ -431,11 +470,128 @@ int gvm_delete_schedule(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
             break;
         }
 
-        return 0;
+        ret = 0;
     } while (0);
 
-    return -1;
+    return ret;
 }
+
+int gvm_option_delete_schedule(gvm_task_info_t info,
+    kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    int ret = 0;
+
+    if (info->m_schedule_created) {
+        ret = gvm_delete_schedule(info->m_schedule_id, tmpbuf, outbuf);
+        if (0 == ret) {
+            info->m_schedule_created = (unsigned char)0;
+        }
+    }
+
+    return ret;
+}
+
+
+int gvm_create_config_ex(const char* name,
+    const char* group_id, const char* group_name,
+    char* config_id, int maxlen, 
+    kb_buf_t tmpbuf, kb_buf_t outbuf) { 
+    int ret = 0;
+
+    do { 
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            REQ_GVM_CREAT_CONFIG_EX_MARK, 
+            name, group_name, group_id);
+        ret = procGvmTask("create_config", tmpbuf, outbuf); 
+        if (0 != ret) {
+            LOG_ERROR("create_config_ex| name=%s| group_id=%s|"
+                " group_name=%s| msg=gvm process failed|", 
+                name, group_id, group_name);
+            
+            break;
+        }
+
+        ret = extractAttrUuid(outbuf->m_buf, "create_config_response", 
+            config_id, maxlen);
+        if (0 != ret) {
+            LOG_ERROR("create_config_ex| name=%s| group_id=%s|"
+                " group_name=%s| msg=cannot found a uuid|", 
+                name, group_id, group_name);
+            
+            break;
+        }
+
+        LOG_INFO("create_config_ex| name=%s| config_id=%s| group_id=%s|"
+            " group_name=%s| msg=ok|", 
+            name, config_id, group_id, group_name);
+    } while (0);
+
+    return ret;
+}
+
+int gvm_delete_config(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    int ret = 0;
+
+    do {
+        ret = chkUuid(uuid);
+        if (0 != ret) {
+            LOG_ERROR("delete_config| config_id=%s| msg=invalid config_id|", uuid);
+            break;
+        }
+
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            REQ_GVM_DELETE_CONFIG_MARK, uuid);
+        ret = procGvmTask("delete_config", tmpbuf, outbuf); 
+        if (0 == ret) {
+            LOG_INFO("delete_config| config_id=%s| msg=ok|", uuid);
+        } else {
+            LOG_ERROR("delete_config| config_id=%s| msg=gvm process failed|", uuid);
+            break;
+        }
+
+        ret = 0;
+    } while (0);
+
+    return ret;
+} 
+
+int gvm_option_delete_config(gvm_task_info_t info, 
+    kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    int ret = 0;
+
+    if (info->m_config_created) {
+        ret = gvm_delete_config(info->m_config_id, tmpbuf, outbuf);
+        if (0 == ret) {
+            info->m_config_created = (unsigned char)0;
+        }
+    }
+
+    return ret;
+}
+
+int gvm_option_create_config(gvm_task_info_t info,
+    kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    int ret = 0;
+
+    /* if is a single config id, then reuse it */
+    if (!isMultiUuid(info->m_group_id)) {
+        strncpy(info->m_config_id, info->m_group_id, ARR_SIZE(info->m_config_id));
+        info->m_config_created = (unsigned char)0;
+    } else {
+        ret = gvm_create_config_ex(info->m_task_name,
+            info->m_group_id,
+            info->m_group_name,
+            info->m_config_id,
+            ARR_SIZE(info->m_config_id),
+            tmpbuf, outbuf);
+        if (0 == ret) {
+            info->m_config_created = (unsigned char)1;
+        } else {
+            info->m_config_created = (unsigned char)0;
+        }
+    }
+    
+    return ret;
+} 
 
 static ListNvtInfo_t createNvtInfo() {
     ListNvtInfo_t nvt = NULL;
@@ -1183,7 +1339,7 @@ int isTaskChkTimeExpired(ListGvmTask_t task) {
 } 
 
 int addTaskChecks(GvmDataList_t data, ListGvmTask_t task) {
-    LOG_INFO("add_task_check| name=%s| status=%d| chk_type=%d|"
+    LOG_DEBUG("add_task_check| name=%s| status=%d| chk_type=%d|"
         " task_id=%s| target_id=%s|"
         " msg=ok|",
         task->m_task_info.m_task_name,

@@ -1,61 +1,24 @@
 <?php
 require 'vuln_parse.php';
 
-$group="0";
-$groupname="所有漏洞";
-$taskname="";
-$hosts="172.16.16.1-172.16.16.233";
+function creat_task($hosts, $schedule_type, $schedule_list) {
+	$taskname="test_".$hosts."_{$schedule_type}";
+	$group="daba56c8-73ec-11df-a475-002264764cea";
+	$groupname="所有漏洞";
+	$schedule_time="2022-01-20 18:30:00";
 
-############################
-#0-none, 1-once, 2:daily, 3:weekly, 4:monthly
-$schedule_type=0; 
-$schedule_time="";
-$schedule_list="";
-$taskname="172.16.16.0_none";
+	$ret=creatTask($taskname, $group, $groupname, $hosts, $schedule_type, $schedule_time, $schedule_list);
+	return $ret;
+}
 
-#create task none
-$param="group=\"{$group}\"&groupname=\"{$groupname}\"&taskname=\"{$taskname}\"&hosts=\"{$hosts}\"&schdule_type=\"{$schedule_type}\"&schedule_time=\"{$schedule_time}\"&schedule_list=\"{$schedule_list}\"";
-call_c_func("create_task", "$param");
+# daily
+creat_task("172.16.3.203", 2, ""); 
 
-#################################
-$schedule_type=1; 
-$schedule_time="2022-01-13 18:00:00";
-$schedule_list="";
-$taskname="172.16.16.0_once";
+#weekly
+creat_task("172.16.3.200", 3, "MO,SA");
 
-#create task once
-$param="group=\"{$group}\"&groupname=\"{$groupname}\"&taskname=\"{$taskname}\"&hosts=\"{$hosts}\"&schdule_type=\"{$schedule_type}\"&schedule_time=\"{$schedule_time}\"&schedule_list=\"{$schedule_list}\"";
-call_c_func("create_task", "$param");
-
-#############################
-$schedule_type=2; 
-$schedule_time="2022-01-13 18:00:00";
-$schedule_list="";
-$taskname="172.16.16.0_daily";
-
-#create task daily
-$param="group=\"{$group}\"&groupname=\"{$groupname}\"&taskname=\"{$taskname}\"&hosts=\"{$hosts}\"&schdule_type=\"{$schedule_type}\"&schedule_time=\"{$schedule_time}\"&schedule_list=\"{$schedule_list}\"";
-call_c_func("create_task", "$param");
-
-#############################
-$schedule_type=3; 
-$schedule_time="2022-01-13 18:00:00";
-$schedule_list="MO,FR";
-$taskname="172.16.16.0_weekly";
-
-#create task weekly
-$param="group=\"{$group}\"&groupname=\"{$groupname}\"&taskname=\"{$taskname}\"&hosts=\"{$hosts}\"&schdule_type=\"{$schedule_type}\"&schedule_time=\"{$schedule_time}\"&schedule_list=\"{$schedule_list}\"";
-call_c_func("create_task", "$param");
-
-##########################
-$schedule_type=4; 
-$schedule_time="2022-01-13 18:00:00";
-$schedule_list="2,16,-1";
-$taskname="172.16.16.0_monthly";
-
-#create task monthly
-$param="group=\"{$group}\"&groupname=\"{$groupname}\"&taskname=\"{$taskname}\"&hosts=\"{$hosts}\"&schdule_type=\"{$schedule_type}\"&schedule_time=\"{$schedule_time}\"&schedule_list=\"{$schedule_list}\"";
-call_c_func("create_task", "$param");
+#monthly
+creat_task("172.16.3.1-5", 4, "3,17,-1"); 
 
 echo ("====End======\n");
 

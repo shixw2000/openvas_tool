@@ -199,12 +199,14 @@ void test06() {
     int ret = 0;
     char msg[1024] = {0};
 
-    getText("check uuid:", msg);        
-    ret = chkUuid(msg);
+    LOG_INFO("check hosts:\n"); 
+
+    getLine("input hosts:", msg);
+    ret = chkHosts(msg);
     if (0 == ret) {
-        LOG_INFO("chkUuid ok\n");
+        LOG_INFO("chk hosts ok\n");
     } else {
-        LOG_ERROR("chkUuid error\n");
+        LOG_INFO("chk hosts error\n");
     }
 }
 
@@ -212,12 +214,14 @@ void test07() {
     int ret = 0;
     char msg[1024] = {0};
 
-    getText("check hosts:", msg); 
-    ret = chkHosts(msg);
+    LOG_INFO("check extended hosts:\n"); 
+
+    getLine("input hosts:", msg);
+    ret = chkHostsExt(msg);
     if (0 == ret) {
-        LOG_INFO("check hosts ok\n");
+        LOG_INFO("check extended hosts ok\n");
     } else {
-        LOG_ERROR("check hosts error\n");
+        LOG_INFO("check extended hosts error\n");
     }
 }
 
@@ -225,12 +229,14 @@ void test08() {
     int ret = 0;
     char msg[1024] = {0};
 
-    getText("check name:", msg); 
+    LOG_INFO("check name:\n"); 
+
+    getLine("input name:", msg);
     ret = chkName(msg);
     if (0 == ret) {
         LOG_INFO("check name ok\n");
     } else {
-        LOG_ERROR("check name error\n");
+        LOG_INFO("check name error\n");
     }
 }
 
@@ -238,12 +244,61 @@ void test09() {
     int ret = 0;
     char msg[1024] = {0};
  
-    getText("escape hosts:", msg); 
+    LOG_INFO("escape host:\n"); 
+
+    getLine("input host:", msg); 
 
     LOG_INFO("original hosts=[%s]\n", msg);
     ret = escapeHosts(msg);
     LOG_INFO("escape hosts=[%s]\n", msg);
 }
+
+void test31() {
+    int ret = 0;
+    char msg[1024] = {0};
+ 
+    LOG_INFO("check month day list:\n"); 
+    getLine("input monthday:", msg); 
+    
+    ret = regmatch(msg, CUSTOM_WHOLE_MATCH_OR_REPEAT(CUSTOM_MONTH_DAY_PATTERN));
+    LOG_INFO("ret=%d| month_days=[%s]\n", ret, msg);
+}
+
+void test32() {
+    int ret = 0;
+    char msg[1024] = {0};
+ 
+    LOG_INFO("check week day list:\n"); 
+    getLine("input week day:", msg); 
+    
+    ret = regmatch(msg, CUSTOM_WHOLE_MATCH_OR_REPEAT(CUSTOM_WEEK_DAY_PATTERN));
+    LOG_INFO("ret=%d| week_days=[%s]\n", ret, msg);
+} 
+
+void test33() {
+    int ret = 0;
+    char msg[1024] = {0};
+ 
+    LOG_INFO("check timestamp:\n"); 
+    getLine("input timestamp:", msg); 
+    
+    ret = test_regmatch(msg, CUSTOM_WHOLE_MATCH_OR_NULL(CUSTOM_TIME_STAMP_PATTERN));
+    LOG_INFO("ret=%d| timestamp=[%s]\n", ret, msg);
+}
+
+void test34() {
+    int ret = 0;
+    char msg[1024] = {0};
+    char time[MAX_TIMESTAMP_SIZE] = {0};
+ 
+    LOG_INFO("get timestamp pattern key:\n"); 
+    getLine("input text:", msg); 
+    
+    ret = getPatternKey(msg, "timestamp", 
+        CUSTOM_MATCH_OR_NULL(CUSTOM_TIME_STAMP_PATTERN),
+        time, ARR_SIZE(time));
+    LOG_INFO("ret=%d| timestamp=[%s]\n", ret, time);
+} 
 
 void test10() {
     int ret = 0;
@@ -330,6 +385,21 @@ void test23() {
         ret, time, inbuf, outbuf, is_local);
 } 
 
+void test24() {
+    int ret = 0;
+    char text[MAX_COMM_SIZE] = {0};
+    char pattern[MAX_COMM_SIZE] = {0};
+
+    LOG_INFO("===test regmatch=====");
+    getLine("text is:", text); 
+    getLine("pattern is:", pattern); 
+    
+
+    ret = test_regmatch(text, pattern);
+    LOG_INFO("ret=[%d]| text=%s| pattern=%s|\n", ret, text, pattern);
+}
+
+
 void test(int option) {
     int ret = 0;
     
@@ -397,6 +467,26 @@ void test(int option) {
 
     case 23:
         test23();
+        break;
+
+    case 24:
+        test24();
+        break;
+
+    case 31:
+        test31();
+        break;
+
+    case 32:
+        test32();
+        break;
+
+    case 33:
+        test33();
+        break;
+
+    case 34:
+        test34();
         break;
         
     default:

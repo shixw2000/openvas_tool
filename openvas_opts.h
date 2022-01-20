@@ -50,7 +50,28 @@ extern int gvm_create_schedule(const char* name, enum ICAL_DATE_REP_TYPE type,
     char uuid[], int maxlen,
     kb_buf_t tmpbuf, kb_buf_t outbuf);
 
-extern int gvm_delete_schedule(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf);
+extern int gvm_option_create_schedule(gvm_task_info_t info,
+    kb_buf_t tmpbuf, kb_buf_t outbuf); 
+
+extern int gvm_delete_schedule(const char* uuid, 
+    kb_buf_t tmpbuf, kb_buf_t outbuf);
+
+extern int gvm_option_delete_schedule(gvm_task_info_t info,
+    kb_buf_t tmpbuf, kb_buf_t outbuf);
+
+extern int gvm_option_create_config(gvm_task_info_t info, 
+    kb_buf_t tmpbuf, kb_buf_t outbuf);
+
+extern int gvm_create_config_ex(const char* name,
+    const char* group_id, const char* group_name,
+    char* config_id, int maxlen, 
+    kb_buf_t tmpbuf, kb_buf_t outbuf);
+
+extern int gvm_delete_config(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf);
+
+extern int gvm_option_delete_config(gvm_task_info_t info,
+    kb_buf_t tmpbuf, kb_buf_t outbuf);
+
 
 #ifdef __cplusplus
 }

@@ -38,9 +38,11 @@ int php_start_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     struct php_key_task_param oParam;
 
     do {
-        ret = getPhpKeyTaskParam(input, &oParam);
-        if (0 != ret) {
+        ret = getPhpKeyTaskParam(input, &oParam, tmpbuf);
+        if (0 != ret) { 
             LOG_ERROR("php_start_task| msg=check parameters error|" );
+
+            ret = GVM_ERR_PARAM_INVALID;
             break;
         }
 
@@ -57,6 +59,8 @@ int php_start_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
                 oParam.m_task_name,
                 oParam.m_task_id,
                 oParam.m_target_id);
+
+            ret = GVM_ERR_REDIS_CONN;
             break;
         }
 
@@ -75,9 +79,11 @@ int php_stop_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     struct php_key_task_param oParam;
 
     do {
-        ret = getPhpKeyTaskParam(input, &oParam);
-        if (0 != ret) {
+        ret = getPhpKeyTaskParam(input, &oParam, tmpbuf);
+        if (0 != ret) { 
             LOG_ERROR("php_stop_task| msg=check parameters error|" );
+
+            ret = GVM_ERR_PARAM_INVALID;
             break;
         }
 
@@ -94,6 +100,8 @@ int php_stop_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
                 oParam.m_task_name,
                 oParam.m_task_id,
                 oParam.m_target_id);
+
+            ret = GVM_ERR_REDIS_CONN;
             break;
         }
 
@@ -112,9 +120,11 @@ int php_delete_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     struct php_key_task_param oParam;
 
     do {
-        ret = getPhpKeyTaskParam(input, &oParam);
+        ret = getPhpKeyTaskParam(input, &oParam, tmpbuf);
         if (0 != ret) {
             LOG_ERROR("php_delete_task| msg=check parameters error|" );
+
+            ret = GVM_ERR_PARAM_INVALID;
             break;
         }
 
@@ -131,6 +141,8 @@ int php_delete_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
                 oParam.m_task_name,
                 oParam.m_task_id,
                 oParam.m_target_id);
+
+            ret = GVM_ERR_REDIS_CONN;
             break;
         }
 
@@ -146,208 +158,71 @@ int php_delete_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
 
 int php_create_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     int ret = 0;
-    int len = 0;
-    int type = 0;
-    int schedule_type = 0;
-    struct php_create_task_param oParam;
-    regex_t reg;
-    regmatch_t matchs[8];
-
-    tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
-        "^group=\"(%s)\"&groupname=\"(%s)\""
-        "&taskname=\"(%s)\"&hosts=\"(%s)\""
-        "&schdule_type=\"(%s)\"&schedule_time=\"(%s)\"&schedule_list=\"(%s)\"$",
-        CUSTOM_GROUP_ID_PATTERN,
-        GVM_NAME_PATTERN,
-        GVM_NAME_PATTERN,
-        CUSTOM_HOSTS_PATTERN,
-        CUSTOM_SCHEDULE_TYPE_PATTERN,
-        CUSTOM_TIME_STAMP_PATTERN_OR_NULL,
-        CUSTOM_SCHEDULE_LIST_PATTERN);
-
-    ret = regcomp(&reg, tmpbuf->m_buf , REG_EXTENDED);
-    if (0 != ret) {
-        LOG_ERROR("php_create_task| msg=compile error|" );
-        return -1;
+    php_create_task_param_t param = NULL; 
+    
+    param = calloc(1, sizeof(struct php_create_task_param));
+    if (NULL == param) {
+        LOG_ERROR("php_create_task| error=no memory|" );
+        return GVM_ERR_INTERNAL_FAIL;
     }
     
     do { 
-        ret = regexec(&reg, input, 8, matchs, 0);
-        if (0 == ret) { 
-            /* group id */
-            len = matchs[1].rm_eo-matchs[1].rm_so;
-            if (len < (int)ARR_SIZE(oParam.m_group_id)) {
-                strncpy(oParam.m_group_id, &input[matchs[1].rm_so], len);
-                oParam.m_group_id[len] = '\0';
-            } else {
-                LOG_ERROR("php_create_task| msg=group id size[%d] exceeds maxlen[%d]|",
-                    len, (int)ARR_SIZE(oParam.m_group_id));
-                ret = -1;
-                break;
-            }
-
-            /* group name */
-            len = matchs[2].rm_eo-matchs[2].rm_so;
-            if (len < (int)ARR_SIZE(oParam.m_group_name)) {
-                strncpy(oParam.m_group_name, &input[matchs[2].rm_so], len);
-                oParam.m_group_name[len] = '\0';
-            } else {
-                LOG_ERROR("php_create_task| msg=group name size[%d] exceeds maxlen[%d]|",
-                    len, (int)ARR_SIZE(oParam.m_group_name));
-                ret = -1;
-                break;
-            }
-
-            /* task name */
-            len = matchs[3].rm_eo-matchs[3].rm_so;
-            if (len < (int)ARR_SIZE(oParam.m_task_name)) {
-                strncpy(oParam.m_task_name, &input[matchs[3].rm_so], len);
-                oParam.m_task_name[len] = '\0';
-            } else {
-                LOG_ERROR("php_create_task| msg=task name size[%d] exceeds maxlen[%d]|",
-                    len, (int)ARR_SIZE(oParam.m_task_name));
-                ret = -1;
-                break;
-            }
-
-            /* hosts */
-            len = matchs[4].rm_eo-matchs[4].rm_so;
-            if (len < (int)ARR_SIZE(oParam.m_hosts)) {
-                strncpy(oParam.m_hosts, &input[matchs[4].rm_so], len);
-                oParam.m_hosts[len] = '\0';
-            } else {
-                LOG_ERROR("php_create_task| msg=hosts size[%d] exceeds maxlen[%d]|",
-                    len, (int)ARR_SIZE(oParam.m_hosts));
-                ret = -1;
-                break;
-            }
-
-            /* schedule_type */
-            len = matchs[5].rm_eo-matchs[5].rm_so;
-            if (len < (int)ARR_SIZE(oParam.m_schedule_type)) {
-                strncpy(oParam.m_schedule_type, &input[matchs[5].rm_so], len);
-                oParam.m_schedule_type[len] = '\0';
-            } else {
-                LOG_ERROR("php_create_task| msg=schedule_type size[%d] exceeds maxlen[%d]|",
-                    len, (int)ARR_SIZE(oParam.m_schedule_type));
-                ret = -1;
-                break;
-            }
-
-            /* schedule_time */
-            len = matchs[6].rm_eo-matchs[6].rm_so;
-            if (len < (int)ARR_SIZE(oParam.m_schedule_time)) {
-                strncpy(oParam.m_schedule_time, &input[matchs[6].rm_so], len);
-                oParam.m_schedule_time[len] = '\0';
-            } else {
-                LOG_ERROR("php_create_task| msg=schedule_time size[%d] exceeds maxlen[%d]|",
-                    len, (int)ARR_SIZE(oParam.m_schedule_time));
-                ret = -1;
-                break;
-            }
-
-            /* schedule_list */
-            len = matchs[7].rm_eo-matchs[7].rm_so;
-            if (len < (int)ARR_SIZE(oParam.m_schedule_list)) {
-                strncpy(oParam.m_schedule_list, &input[matchs[7].rm_so], len);
-                oParam.m_schedule_list[len] = '\0';
-            } else {
-                LOG_ERROR("php_create_task| msg=schedule_list size[%d] exceeds maxlen[%d]|",
-                    len, (int)ARR_SIZE(oParam.m_schedule_list));
-                ret = -1;
-                break;
-            }
-        } else {
-            LOG_ERROR("php_create_task| text=%s| msg=invalid parameters", input);
-            break;
-        }
-
-        ret = getGroupId(oParam.m_group_id, &type);
+        ret = getPhpCreateTaskParam(input, param, tmpbuf);
         if (0 != ret) {
-            LOG_ERROR("php_create_task| group_id=%s| msg=invalid group id|", 
-                oParam.m_group_id);
-            break;
-        }
-
-        ret = trimText(oParam.m_group_name);
-        if (0 != ret) {
-            LOG_ERROR("php_create_task| group_name=%s| msg=invalid group name|", 
-                oParam.m_group_name);
-            break;
-        }
-
-        ret = escapeHosts(oParam.m_hosts);
-        if (0 != ret) {
-            LOG_ERROR("php_create_task| hosts=%s| msg=invalid hosts|", 
-                oParam.m_hosts);
-            break;
-        }
-        
-        ret = chkHosts(oParam.m_hosts);
-        if (0 != ret) {
-            LOG_ERROR("php_create_task| hosts=%s| msg=invalid hosts|", 
-                oParam.m_hosts);
-            break;
-        }
-
-        ret = trimText(oParam.m_task_name);
-        if (0 != ret) {
-            LOG_ERROR("php_create_task| hosts=%s| msg=invalid taskname|", 
-                oParam.m_task_name);
-            break;
-        }
-
-        schedule_type = atoi(oParam.m_schedule_type);
-        ret = chkScheduleParam(schedule_type, oParam.m_schedule_time, oParam.m_schedule_list);
-        if (0 != ret) {
-            LOG_ERROR("php_create_task| schedul_type=%s| schedul_time=%s|"
-                " schedul_list=%s| msg=invalid schedule parameters|", 
-                oParam.m_schedule_type, 
-                oParam.m_schedule_time,
-                oParam.m_schedule_list);
+            ret = GVM_ERR_PARAM_INVALID;
             break;
         }
         
         tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
-            "%s%s%d%s%s%s%s%s%s%s%s%s%s%s%s%s", 
+            "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
             "create_task", OPENVAS_KB_DELIM,
-            type, OPENVAS_KB_DELIM,
-            oParam.m_group_name, OPENVAS_KB_DELIM,
-            oParam.m_task_name,  OPENVAS_KB_DELIM,
-            oParam.m_hosts, OPENVAS_KB_DELIM,
-            oParam.m_schedule_type, OPENVAS_KB_DELIM,
-            oParam.m_schedule_time, OPENVAS_KB_DELIM,
-            oParam.m_schedule_list, OPENVAS_KB_DELIM);
+            param->m_task_name, OPENVAS_KB_DELIM,
+            param->m_group_id, OPENVAS_KB_DELIM,
+            param->m_group_name,  OPENVAS_KB_DELIM,
+            param->m_hosts, OPENVAS_KB_DELIM,
+            param->m_schedule_type, OPENVAS_KB_DELIM,
+            param->m_schedule_time, OPENVAS_KB_DELIM,
+            param->m_schedule_list, OPENVAS_KB_DELIM);
         ret = sendKbMsg(OPENVAS_MSG_NAME, tmpbuf->m_buf, tmpbuf->m_size);
-        if (0 != ret) { 
-            LOG_ERROR("php_create_task| group_id=%s| group_name=%s|"
-                " task_name=%s| host=%s|"
+        if (0 == ret) { 
+            LOG_INFO("php_create_task| task_name=%s|"
+                " group_id=%s| group_name=%s|"
+                " host=%s|"
+                " schedule_type=%s| schedule_time=%s| schedule_list=%s|"
+                " msg=ok|",
+                param->m_task_name,
+                
+                param->m_group_id,
+                param->m_group_name,
+                
+                param->m_hosts,
+                
+                param->m_schedule_type,
+                param->m_schedule_time,
+                param->m_schedule_list);
+        } else {
+            LOG_ERROR("php_create_task| task_name=%s|"
+                " group_id=%s| group_name=%s|"
+                " host=%s|"
                 " schedule_type=%s| schedule_time=%s| schedule_list=%s|"
                 " msg=send msg error|",
-                oParam.m_group_id,
-                oParam.m_group_name,
-                oParam.m_task_name,
-                oParam.m_hosts,
-                oParam.m_schedule_type,
-                oParam.m_schedule_time,
-                oParam.m_schedule_list);
+                param->m_task_name,
+                
+                param->m_group_id,
+                param->m_group_name,
+                
+                param->m_hosts,
+                
+                param->m_schedule_type,
+                param->m_schedule_time,
+                param->m_schedule_list);
+
+            ret = GVM_ERR_REDIS_CONN;
             break;
         }
-
-        LOG_INFO("php_create_task| group_id=%s| group_name=%s|"
-            " task_name=%s| host=%s|"
-            " schedule_type=%s| schedule_time=%s| schedule_list=%s|"
-            " msg=ok|",
-            oParam.m_group_id,
-            oParam.m_group_name,
-            oParam.m_task_name,
-            oParam.m_hosts,
-            oParam.m_schedule_type,
-            oParam.m_schedule_time,
-            oParam.m_schedule_list);
     } while (0);
 
-    regfree(&reg);
+    free(param);
 
     return ret;
 }
@@ -356,140 +231,133 @@ int chkScheduleParam(int type, const char* schedule_time, const char* schedule_l
     int ret = 0;
 
     if (ICAL_DATE_NONE == type) {
-        if ('\0' != schedule_time[0] || '\0' != schedule_list[0]) {
-            ret = -1;
-        }
-    } else if (ICAL_DATE_ONCE == type || ICAL_DATE_DAILY == type) {
-        if ('\0' == schedule_time[0] || '\0' != schedule_list[0]) {
-            ret = -1;
-        }
-    } else if (ICAL_DATE_WEEKLY == type || ICAL_DATE_MONTHLY == type) {
-        if ('\0' == schedule_time[0] || '\0' == schedule_list[0]) {
+        if ('\0' == schedule_time[0] && '\0' == schedule_list[0]) {
+            ret = 0;
+        } else {
             ret = -1;
         }
     } else {
-        ret = -1;
+        ret = chkTimeStamp(schedule_time);
+        if (0 == ret) {
+        
+            if (ICAL_DATE_ONCE == type || ICAL_DATE_DAILY == type) { 
+                if ('\0' == schedule_list[0]) {
+                    ret = 0;
+                } else {
+                    ret = -1;
+                }
+            } else if (ICAL_DATE_WEEKLY == type) {
+                ret = regmatch(schedule_list, 
+                    CUSTOM_WHOLE_MATCH_OR_REPEAT(CUSTOM_WEEK_DAY_PATTERN));
+            } else if (ICAL_DATE_MONTHLY == type) {
+                ret = regmatch(schedule_list, 
+                    CUSTOM_WHOLE_MATCH_OR_REPEAT(CUSTOM_MONTH_DAY_PATTERN));
+            }
+        } else {
+            ret = -1;
+        }
     }
 
     return ret;
 }
 
-int getGroupId(const char* text, int* id) {
-    int type = 0;
-
-    type = atoi(text);
-    if (0 <= type && 0x10000 > type) {
-        /* ok */
-        *id = type;
-        return 0;
-    } else {
-        LOG_ERROR( "%s: group=%s[%d]| msg=invalid group id", __FUNCTION__, text, type);
-        return -1;
-    }
-}
-
-int getConfigId(int type, char* buf, int maxlen) {
-    int cnt = 0;
-    char uuid[MAX_UUID_SIZE] = {0};
-
-    if (0 < type) {
-        cnt = snprintf(uuid, MAX_UUID_SIZE, DEF_OPENVAS_CONFIG_GROUP_FORMAT, type);
-    } else {
-        /* default full config */
-        cnt = snprintf(uuid, MAX_UUID_SIZE, DEF_OPENVAS_FULL_AND_FAST_CONFIG);
-    } 
-    
-    if (0 < cnt && cnt < maxlen) {
-        memcpy(buf, uuid, cnt);
-        buf[cnt] = '\0';
-    } else if (cnt >= maxlen) {
-        cnt = -cnt;
-    } else {
-        cnt = -1;
-    }
-
-    return cnt;
-}
-
-int chkUuid(const char* text) {
+int chkConfigInfo(const char* ids, const char* names) {
     int ret = 0;
-    regex_t reg;
-    regmatch_t match;
-    char pattern[MAX_BUFFER_SIZE + 1] = {0};
-
-    snprintf(pattern, MAX_BUFFER_SIZE, "^%s$", UUID_REG_PATTERN);
-    ret = regcomp(&reg, pattern, REG_EXTENDED);
-    if (0 != ret) {
-        LOG_ERROR("%s: regcompile error|", __FUNCTION__);
-        return -1;
-    }
 
     do {
-        ret = regexec(&reg, text, 1, &match, 0);
+        ret = regmatch(ids, CUSTOM_WHOLE_MATCH_OR_REPEAT(UUID_REG_PATTERN));
         if (0 != ret) {
-            LOG_ERROR( "%s: uuid=%s| msg=invalid uuid", __FUNCTION__, text);
-            ret = -1;
+            break;
+        }
+
+        ret = regmatch(names, CUSTOM_WHOLE_MATCH_OR_REPEAT(GVM_NAME_PATTERN));
+        if (0 != ret) {
             break;
         }
     } while (0);
 
-    regfree(&reg);
-    
+    return ret;
+}
+
+/* param: ',' seperated uuids,
+    return: 1: yes multi, 0:no
+*/
+int isMultiUuid(const char* ids) {
+    int ret = 0;
+
+    ret = regmatch(ids, "("UUID_REG_PATTERN")(,"UUID_REG_PATTERN")+");
+    if (0 == ret) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int chkUuid(const char* text) {
+    int ret = 0;
+
+    do {
+        ret = regmatch(text, CUSTOM_WHOLE_MATCH(UUID_REG_PATTERN));
+        if (0 != ret) { 
+            break;
+        }
+    } while (0);
+
     return ret;
 }
 
 int chkHosts(const char* text) {
     int ret = 0;
-    regex_t reg;
-    regmatch_t match;
-    char pattern[MAX_BUFFER_SIZE + 1] = {0};
-
-    snprintf(pattern, MAX_BUFFER_SIZE, "^([0-9., /-]){1,128}$");
-    ret = regcomp(&reg, pattern, REG_EXTENDED);
-    if (0 != ret) {
-        LOG_ERROR("%s: patter=%s| regcompile error|", __FUNCTION__, pattern);
-        return -1;
-    }
 
     do {
-        ret = regexec(&reg, text, 1, &match, 0);
+        ret = regmatch(text, CUSTOM_WHOLE_MATCH_IPS_NORMAL);
         if (0 != ret) {
-            LOG_ERROR( "%s: hosts=%s| msg=invalid hosts", __FUNCTION__, text);
-            ret = -1;
             break;
         }
     } while (0);
 
-    regfree(&reg);
     return ret;
 }
 
-int chkName(const char* text) {
+int chkHostsExt(const char* text) {
     int ret = 0;
-    regex_t reg;
-    regmatch_t match;
-    char pattern[MAX_BUFFER_SIZE + 1] = {0};
-
-    snprintf(pattern, MAX_BUFFER_SIZE, "^%s$", GVM_NAME_PATTERN);
-    ret = regcomp(&reg, pattern, REG_EXTENDED);
-    if (0 != ret) {
-        LOG_ERROR("%s: regcompile error|", __FUNCTION__);
-        return -1;
-    }
 
     do {
-        ret = regexec(&reg, text, 1, &match, 0);
+        ret = regmatch(text, CUSTOM_WHOLE_MATCH_IPS_EX);
         if (0 != ret) {
-            LOG_ERROR( "%s: name=%s| msg=invalid name", __FUNCTION__, text);
-            ret = -1;
+            break;
+        }
+    } while (0);
+
+    return ret;
+}
+
+
+int chkName(const char* text) {
+    int ret = 0;
+
+    do {
+        ret = regmatch(text, CUSTOM_WHOLE_MATCH(GVM_NAME_PATTERN));
+        if (0 != ret) {
             break;
         }
     } while(0);
 
-    regfree(&reg);
     return ret;
 }
 
+int chkTimeStamp(const char* text) {
+    int ret = 0;
+
+    do {
+        ret = regmatch(text, CUSTOM_WHOLE_MATCH(CUSTOM_TIME_STAMP_PATTERN));
+        if (0 != ret) {
+            break;
+        }
+    } while(0);
+
+    return ret;
+}
 
 /* 0: ok, -1: error, -2: response error */
 int chkRspStatusOk(const char* cmd, const char* text) {
@@ -750,6 +618,27 @@ int getNextToken(const char* text, const char* needle,
     }
 }
 
+/* return: 0: ok, 1: empty, -1: exceed max size, -2: not digit */
+int getNextTokenInt(const char* text, const char* needle,
+    int* val, const_char_t* saveptr) {
+    int ret = 0;
+    char buf[MAX_COMM_MIN_SIZE] = {0};
+
+    *val = -1;
+    
+    ret = getNextToken(text, needle, buf, ARR_SIZE(buf), saveptr);
+    if (0 == ret) {
+        if (isdigit(buf[0])) {
+            *val = atoi(buf);
+        } else {
+            ret = -2;
+        }
+    }
+
+    return ret;
+}
+
+
 int getPatternKey(const char* text, const char* key, 
     const char* pattern, char* val, int maxlen) {
     int ret = 0;
@@ -758,8 +647,9 @@ int getPatternKey(const char* text, const char* key,
     regmatch_t matchs[2];  
     char format[MAX_COMM_SIZE] = {0};
 
-    snprintf(format, MAX_COMM_SIZE, "^%s=\"(%s)\"$", key, pattern);
-
+    val[0] = '\0';
+    
+    snprintf(format, MAX_COMM_SIZE, "^%s=\"(%s)\"$", key, pattern); 
     ret = regcomp(&reg, format, REG_EXTENDED | REG_NEWLINE);
     if (0 != ret) {
         LOG_ERROR("getPatternKey| text=%s| key=%s| pattern=%s| error=compile failed|",
@@ -791,6 +681,25 @@ int getPatternKey(const char* text, const char* key,
     } while (0);
 
     regfree(&reg);
+    return ret;
+}
+
+int getPatternKeyInt(const char* text, const char* key, 
+    const char* pattern, int* val) {
+    int ret = 0;
+    char buf[MAX_COMM_MIN_SIZE] = {0};
+
+    *val = -1;
+    
+    ret = getPatternKey(text, key, pattern, buf, ARR_SIZE(buf));
+    if (0 == ret) {
+        if (isdigit(buf[0])) {
+            *val = atoi(buf);
+        } else {
+            ret = -1;
+        }
+    } 
+
     return ret;
 }
 
@@ -873,19 +782,191 @@ int readTotalFile(const char name[], kb_buf_t cache) {
     } 
 }
 
-int getPhpKeyTaskParam(const char* text, php_key_task_param_t param) {
+int getPhpCreateTaskParam(const char* input, php_create_task_param_t param,
+    kb_buf_t tmpbuf) {
+    int ret = 0;
+    int len = 0;
+    int type = 0;
+    regex_t reg;
+    regmatch_t matchs[8];
+
+    tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+        "^taskname=\"(%s)\"&group=\"(%s)\"&groupname=\"(%s)\"&hosts=\"(%s)\""
+        "&schdule_type=\"(%s)\"&schedule_time=\"(%s)?\"&schedule_list=\"(%s)\"$",
+        CUSTOM_COMM_PATTERN,
+        
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_COMM_PATTERN,
+        
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_COMM_PATTERN);
+
+    ret = regcomp(&reg, tmpbuf->m_buf , REG_EXTENDED);
+    if (0 != ret) {
+        LOG_ERROR("php_create_task| msg=compile error|" );
+        return -1;
+    }
+    
+    do { 
+        ret = regexec(&reg, input, 8, matchs, 0);
+        if (0 == ret) { 
+            /* task name */
+            len = matchs[1].rm_eo-matchs[1].rm_so;
+            if (len < (int)ARR_SIZE(param->m_task_name)) {
+                strncpy(param->m_task_name, &input[matchs[1].rm_so], len);
+                param->m_task_name[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_task| msg=task name size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_task_name));
+                ret = -1;
+                break;
+            }
+            
+            /* group id */
+            len = matchs[2].rm_eo-matchs[2].rm_so;
+            if (len < (int)ARR_SIZE(param->m_group_id)) {
+                strncpy(param->m_group_id, &input[matchs[2].rm_so], len);
+                param->m_group_id[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_task| msg=group id size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_group_id));
+                ret = -1;
+                break;
+            }
+
+            /* group name */
+            len = matchs[3].rm_eo-matchs[3].rm_so;
+            if (len < (int)ARR_SIZE(param->m_group_name)) {
+                strncpy(param->m_group_name, &input[matchs[3].rm_so], len);
+                param->m_group_name[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_task| msg=group name size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_group_name));
+                ret = -1;
+                break;
+            } 
+            
+
+            /* hosts */
+            len = matchs[4].rm_eo-matchs[4].rm_so;
+            if (len < (int)ARR_SIZE(param->m_hosts)) {
+                strncpy(param->m_hosts, &input[matchs[4].rm_so], len);
+                param->m_hosts[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_task| msg=hosts size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_hosts));
+                ret = -1;
+                break;
+            }
+
+            /* schedule_type */
+            len = matchs[5].rm_eo-matchs[5].rm_so;
+            if (len < (int)ARR_SIZE(param->m_schedule_type)) {
+                strncpy(param->m_schedule_type, &input[matchs[5].rm_so], len);
+                param->m_schedule_type[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_task| msg=schedule_type size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_schedule_type));
+                ret = -1;
+                break;
+            }
+
+            /* schedule_time */
+            len = matchs[6].rm_eo-matchs[6].rm_so;
+            if (len < (int)ARR_SIZE(param->m_schedule_time)) {
+                strncpy(param->m_schedule_time, &input[matchs[6].rm_so], len);
+                param->m_schedule_time[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_task| msg=schedule_time size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_schedule_time));
+                ret = -1;
+                break;
+            }
+
+            /* schedule_list */
+            len = matchs[7].rm_eo-matchs[7].rm_so;
+            if (len < (int)ARR_SIZE(param->m_schedule_list)) {
+                strncpy(param->m_schedule_list, &input[matchs[7].rm_so], len);
+                param->m_schedule_list[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_task| msg=schedule_list size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_schedule_list));
+                ret = -1;
+                break;
+            }
+        } else {
+            LOG_ERROR("php_create_task| text=%s| msg=invalid parameters", input);
+
+            ret = -1;
+            break;
+        }
+
+        ret = chkName(param->m_task_name);
+        if (0 != ret) {
+            LOG_ERROR("php_create_task| task_name=%s| msg=invalid task name|", 
+                param->m_task_name);
+            break;
+        }
+
+        ret = chkConfigInfo(param->m_group_id, param->m_group_name);
+        if (0 != ret) {
+            LOG_ERROR("php_create_task| group_id=%s| group_name=%s| msg=invalid groups|", 
+                param->m_group_id, param->m_group_name);
+            break;
+        }
+
+        ret = chkHostsExt(param->m_hosts);
+        if (0 != ret) {
+            LOG_ERROR("php_create_task| hosts=%s| msg=invalid hosts|", 
+                param->m_hosts);
+            break;
+        }
+
+        ret = escapeHosts(param->m_hosts);
+        if (0 != ret) {
+            LOG_ERROR("php_create_task| hosts=%s| msg=invalid hosts|", 
+                param->m_hosts);
+            break;
+        }
+
+        type = atoi(param->m_schedule_type);
+        ret = chkScheduleParam(type, param->m_schedule_time, 
+            param->m_schedule_list);
+        if (0 != ret) {
+            LOG_ERROR("php_create_task| schedul_type=%s| schedul_time=%s|"
+                " schedul_list=%s| msg=invalid schedule parameters|", 
+                param->m_schedule_type, 
+                param->m_schedule_time,
+                param->m_schedule_list);
+            break;
+        }
+
+        ret = 0;
+    } while (0);
+
+    regfree(&reg);
+
+    return ret;
+}
+
+
+int getPhpKeyTaskParam(const char* text, php_key_task_param_t param,
+    kb_buf_t tmpbuf) {
     int ret = 0;
     int len = 0;
     regex_t reg;
     regmatch_t matchs[4];
-    char pattern[MAX_COMM_SIZE] = {0};
 
-    snprintf(pattern, MAX_BUFFER_SIZE, PHP_KEY_TASK_PARAMS_PATT, 
+    tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity, 
+        "^taskname=\"(%s)\"&taskid=\"(%s)\"&targetid=\"(%s)\"$", 
         GVM_NAME_PATTERN, UUID_REG_PATTERN, UUID_REG_PATTERN); 
 
-    ret = regcomp(&reg, pattern, REG_EXTENDED);
+    ret = regcomp(&reg, tmpbuf->m_buf, REG_EXTENDED);
     if (0 != ret) {
-        LOG_ERROR( "getPhpKeyTaskParam| patter=%s| msg=compile error|", pattern);
+        LOG_ERROR( "getPhpKeyTaskParam| patter=%s| msg=compile error|", 
+            tmpbuf->m_buf);
         return -1;
     }
     
@@ -974,6 +1055,51 @@ int getXmlTagVal(const char* text, const char* tag, char* buf, int maxlen) {
 
     LOG_ERROR("getXmlTagVal| text=%s| tag=%s| error=check failed|", text, tag);
     return -1; 
+}
+
+int regmatch(const char text[], const char pattern[]) {
+    int ret = 0; 
+    regex_t reg;
+     
+    ret = regcomp(&reg, pattern, REG_EXTENDED|REG_NOSUB);
+    if (0 == ret) {
+        ret = regexec(&reg, text, 0, NULL, 0);
+        if (0 != ret) {
+            ret = -1;
+        }
+        regfree(&reg);
+    } else {
+        ret = -1;
+    }
+
+    return ret;
+}
+
+int test_regmatch(const char text[], const char pattern[]) {
+    int ret = 0; 
+    regex_t reg;
+    char buf[256] = {0};
+     
+    ret = regcomp(&reg, pattern, REG_EXTENDED|REG_NOSUB);
+    if (0 == ret) {
+        ret = regexec(&reg, text, 0, NULL, 0);
+        if (0 == ret) {
+            LOG_DEBUG("regexec| text=%s| pattern=%s| msg=ok|", text, pattern);
+        } else {
+            regerror(ret, &reg, buf, 256);
+            
+            LOG_ERROR("regexec| text=%s| pattern=%s| ret=%d| err=%s|",
+                text, pattern, ret, buf);
+            ret = -1;
+        }
+        regfree(&reg);
+    } else {
+        LOG_ERROR("regcomp| text=%s| pattern=%s| ret=%d| err=%s|",
+            text, pattern, ret, ERRMSG);
+        ret = -1;
+    }
+
+    return ret;
 }
 
 

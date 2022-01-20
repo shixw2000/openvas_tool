@@ -39,17 +39,20 @@ struct gvm_target_info {
     char m_target_name[MAX_NAME_SIZE];
     char m_target_id[MAX_UUID_SIZE];
     char m_portlist_id[MAX_UUID_SIZE];
-    char m_hosts[MAX_HOSTS_SIZE];
+    char m_hosts[MAX_MEM_LIST_SIZE];
 };
 
 struct gvm_task_info {
     enum ICAL_DATE_REP_TYPE m_schedule_type;
+    unsigned char m_config_created;
+    unsigned char m_schedule_created;
+    unsigned char m_res[2];
     char m_create_time[MAX_TIMESTAMP_SIZE];
     char m_modify_time[MAX_TIMESTAMP_SIZE];
     char m_task_id[MAX_UUID_SIZE];
     char m_task_name[MAX_NAME_SIZE];
-    char m_group_id[MAX_GROUP_SIZE];
-    char m_group_name[MAX_NAME_SIZE];
+    char m_group_id[MAX_MEM_LIST_SIZE];
+    char m_group_name[MAX_MEM_LIST_SIZE];
     char m_config_id[MAX_UUID_SIZE];
     char m_schedule_id[MAX_UUID_SIZE];
     char m_first_schedule_time[MAX_TIMESTAMP_SIZE];
@@ -142,8 +145,6 @@ typedef struct ListNvtInfo* ListNvtInfo_t;
 #define DEF_LOG_FILE_NAME "daemon_openvas.log"
 #define DEF_RUNLOG_FILE_NAME "run_openvas.log"
 
-#define DEF_WIN_CR_LF "\r\n"
-#define DEF_EMPTY_STR ""
 
 struct GvmTaskOperation;
 
@@ -232,6 +233,8 @@ extern int gvm_query_result(const char* taskid, const char* reportid,
 extern int gvm_query_report(const char* uuid, kb_buf_t tmpbuf, kb_buf_t outbuf);
 
 extern void printResult(kb_buf_t buffer);
+
+extern int getKeyTaskParam(const char* input, ListGvmTask_t task);
 
 #ifdef __cplusplus
 }

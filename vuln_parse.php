@@ -429,12 +429,14 @@ function chk_run_status($status) {
 
 function get_gvm_schedule_name($schedule_type) {
 	if (0 == $schedule_type) {
-		return "一次性";
+		return "关闭定时";
 	} else if (1 == $schedule_type) {
-		return "每天";
+		return "一次性";
 	} else if (2 == $schedule_type) {
-		return "每周";
+		return "每天";
 	} else if (3 == $schedule_type) {
+		return "每周";
+	} else if (4 == $schedule_type) {
 		return "每月";
 	} else {
 		return "";
@@ -743,9 +745,50 @@ function call_c_func($cmd, $param) {
 	#echo ("start:call_c_func[{$cmd}]|\n");
 	$retcode = php_gvm_cmd_entry($cmd, $param);
 	$retmsg=getResult($retcode);
-	#echo ("end:call_c_func[{$cmd}]:{$retcode}:{$retmsg}|\n");
+	#echo ("end:call_c_func[{$cmd}]:{$param}:{$retmsg}|\n");
 	
 	return $retmsg;
+}
+
+##########
+#this is used to create a task for simple
+#schedule_type: 0-none, 1-once, 2:daily, 3:weekly, 4:monthly
+#schedule_time: 2022-01-20 12:10:08, if none must be empty.
+#schedule_list: if weekly:(MO,TU,WE,TH,FR,SA,SU), if monthly(1,...,20,...,30,31,-1), if other must be empty.
+#example:createTask("test_weekly", "daba56c8-73ec-11df-a475-002264764cea", "所有漏洞", "172.16.3.3",
+#   "3", "2022-01-20 12:10:08", "WE,SA,SU");
+###########
+function creatTask($taskname, $group, $groupname, $hosts, $schedule_type, $schedule_time, $schedule_list) {
+	$param="taskname=\"{$taskname}\"&group=\"{$group}\"&groupname=\"{$groupname}\""
+		. "&hosts=\"{$hosts}\"&schdule_type=\"{$schedule_type}\""
+		. "&schedule_time=\"{$schedule_time}\"&schedule_list=\"{$schedule_list}\"";
+	
+	$ret=call_c_func("create_task", "$param");
+	return $ret;
+}
+
+#this is used to start a task for simple
+function startTask($taskname, $taskid, $targetid) {
+	$param="taskname=\"{$taskname}\"&taskid=\"{$taskid}\"&targetid=\"{$targetid}\"";
+	
+	$ret=call_c_func("start_task", "$param");
+	return $ret;
+}
+
+#this is used to stop a task for simple
+function stopTask($taskname, $taskid, $targetid) {
+	$param="taskname=\"{$taskname}\"&taskid=\"{$taskid}\"&targetid=\"{$targetid}\"";
+	
+	$ret=call_c_func("stop_task", "$param");
+	return $ret;
+}
+
+#this is used to delete_task a task for simple
+function deleteTask($taskname, $taskid, $targetid) {
+	$param="taskname=\"{$taskname}\"&taskid=\"{$taskid}\"&targetid=\"{$targetid}\"";
+	
+	$ret=call_c_func("delete_task", "$param");
+	return $ret;
 }
 
 #$plugin_dir="/usr/local/openvas/gvm/var/lib/openvas/plugins";
