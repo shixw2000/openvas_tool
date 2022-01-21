@@ -1,0 +1,167 @@
+Env:
+redhat-6.5, gcc-4.4.7
+
+1. dependencies:
+bison-2.5.tar.gz     gmp-6.1.2.tar.xz         libgcrypt-1.8.4.tar.bz2    libpcap-1.4.0.tar.gz        ncurses-5.8.tar.gz      perl-5.10.1.tar.bz2     redis-5.0.3.tar.gz
+cmake-3.0.0.tar.gz   gnupg-2.1.12.tar.bz2     libgpg-error-1.34.tar.bz2  libssh-0.7.4.tar.xz         net-snmp-5.4.4.tar.gz   php-5.6.40.tar.gz       texinfo-6.6.tar.gz
+expat-2.0.0.tar.gz   gnutls-3.6.4.tar.xz      libical-2.0.0.zip          libtasn1-4.14.tar.gz        nettle-3.4.tar.gz       postgresql-12.0.tar.gz  util-linux-2.25.tar.gz
+flex-2.5.39.tar.gz   gpgme-1.7.0.tar.bz2      libidn2-2.0.5.tar.gz       libunistring-0.9.10.tar.gz  npth-1.6.tar.bz2        psutil-3.2.1.tar.gz     XML-Parser-2.36.tar.gz
+gettext-0.20.tar.gz  libassuan-2.4.4.tar.bz2  libksba-1.3.5.tar.bz2      libxml2-2.7.6.tar.gz        openssl-1.0.2.tar.gz    Python-3.7.0.tgz        XML-Twig-3.48.tar.gz
+glib-2.42.1.tar.xz   libffi-3.0.0.tar.gz      libnet-1.1.6.tar.gz        libxslt-v1.1.28.tar.gz      p11-kit-0.23.16.tar.gz  readline-6.0.tar.gz     zlib-1.2.8.tar.gz
+
+2. extra dependency: gcc (GCC) 4.8.5 for openvas 
+
+3. build:
+export BASE_DIR=/usr/local/openvas
+export PATH=$BASE_DIR/depends/bin:$BASE_DIR/depends/sbin\
+:$BASE_DIR/postgresql/bin:$BASE_DIR/python/bin\
+:$BASE_DIR/perl/bin\
+:$BASE_DIR/gvm/bin:$BASE_DIR/gvm/sbin\
+:/usr/bin:/bin:/usr/sbin:/sbin
+
+export LD_LIBRARY_PATH=$BASE_DIR/depends/lib\
+:$BASE_DIR/postgresql/lib\
+:$BASE_DIR/python/lib\
+:$BASE_DIR/perl/lib\
+:$BASE_DIR/gvm/lib
+
+export PKG_CONFIG_PATH=$BASE_DIR/depends/lib/pkgconfig\
+:$BASE_DIR/postgresql/lib/pkgconfig\
+:$BASE_DIR/python/lib/pkgconfig\
+:$BASE_DIR/perl/lib/pkgconfig\
+:$BASE_DIR/gvm/lib/pkgconfig
+
+
+COMM_CMAKE: /usr/local/openvas/cmake/bin/cmake -DCMAKE_VERBOSE_MAKEFILE=on\
+ -DCMAKE_PREFIX_PATH="/usr/local/openvas/depends;/usr/local/openvas/perl;/usr/local/openvas/python;/usr/local/openvas/postgresql"\
+
+COMM_CONFIG: CFLAGS="-I/usr/local/openvas/depends/include -I/usr/local/openvas/depends/include/ncurses"\
+ LDFLAGS="-L/usr/local/openvas/depends/lib"\
+ ./configure --prefix=/usr/local/openvas/depends
+ 
+Packages installed order:
+zlib: 
+gettext:
+gmp:
+bison:
+uuid/util:  --disable-all-programs --enable-libuuid --without-ncurses --without-python
+ncurses:  --with-shared --without-normal --without-debug
+readline: --enable-shared
+gpg-error:
+ffi:
+openssl: ./Configure --prefix=/usr/local/openvas/depends  shared linux-x86_64
+libxml: 
+expat:
+python: --with-system-expat --with-openssl=/usr/local/openvas/depends --prefix=/usr/local/openvas/python 
+        ##同时修改setup.py中搜索路径system_lib_dirs/system_include_dirs + include, include/uuid
+	psutil: python setup.py build && python setup.py install
+	lxml: pip install libxml; pip install lxml
+	
+flex:
+libunistring:
+Libassuan:
+npth:
+texinfo:
+libksba:
+libtasn:
+libidn:
+p11-kit:
+libgcrypt:
+
+perl: ./Configure -des -Dprefix=/usr/local/openvas/perl
+	XML-Parser: perl Makefile.PL EXPATLIBPATH=/usr/local/openvas/depends/lib EXPATINCPATH=/usr/local/openvas/depends/include
+	XML-Twig:   perl Makefile.PL
+	
+libical:  -DCMAKE_INSTALL_PREFIX=/usr/local/openvas/depends -DCMAKE_INSTALL_LIBDIR=/usr/local/openvas/depends/lib ..
+libxslt: ./autogen.sh, ./configure --prefix=/usr/local/openvas/depends
+
+libpcap: 
+libnet:
+glib:
+libssh: .cmake -DCMAKE_INSTALL_PREFIX=/usr/local/openvas/depends -DWITH_GCRYPT=ON ..
+
+nettle: --prefix=/usr/local/openvas/depends  --libdir=/usr/local/openvas/depends/lib LIBS=-lgmp 
+gnutls: --disable-doc --disable-silent-rules
+gnupg: --with-readline=/usr/local/openvas/depends --with-zlib=/usr/local/openvas/depends;   ln -s gpg2 gpg
+
+gpgme: 
+redis: make CFLAGS="-I/usr/local/openvas/depends/include -I/usr/local/openvas/depends/include/ncurses"\
+ LDFLAGS="-L/usr/local/openvas/depends/lib"&& PREFIX=/usr/local/openvas/depends 
+
+postgresql: ./configure --prefix=/usr/local/openvas/postgresql --with-libxml --with-libxslt --with-uuid=e2fs --with-openssl --with-zlib\
+ --with-includes="/usr/local/openvas/depends/include"\
+ --with-libraries="/usr/local/openvas/depends/lib"
+
+net-snmp: --with-openssl=/usr/local/openvas/depends
+
+openvas：
+/usr/local/openvas/cmake/bin/cmake -DCMAKE_C_COMPILER=/usr/local/gcc/bin/gcc\
+ -DCMAKE_VERBOSE_MAKEFILE=on\
+ -DCMAKE_C_FLAGS="-std=gnu99 -D_BSD_SOURCE -D__BSD_SOURCE -D__FAVOR_BSD -DHAVE_NET_ETHERNET_H -I/usr/local/openvas/depends/include -L/usr/local/openvas/depends/lib -L/usr/local/openvas/postgresql/lib"\
+ -DCMAKE_PREFIX_PATH="/usr/local/openvas/postgresql;/usr/local/openvas/depends;/usr/local/openvas/gvm"\
+ -DCMAKE_INSTALL_PREFIX=/usr/local/openvas/gvm\
+ -DGVM_RUN_DIR=/usr/local/openvas/gvm/run/gvm\
+ -DOPENVAS_RUN_DIR=/usr/local/openvas/gvm/run/gvm\
+ -DSYSCONFDIR=/usr/local/openvas/gvm/etc\
+ -DLOCALSTATEDIR=/usr/local/openvas/gvm/var\
+ -DREDIS_SOCKET_PATH="/usr/local/openvas/gvm/run/redis/redis.sock"\
+ -DOPENVAS_DEFAULT_SOCKET="/usr/local/openvas/gvm/run/ospd/ospd.sock"\
+ ..
+
+ospd:
+python3 -m pip install -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com --upgrade pip
+python3 -m pip install -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com  .
+
+
+4. run
+ospd-openvas\
+ --config /usr/local/openvas/gvm/run/ospd/ospd-openvas.conf\
+ --log-config /usr/local/openvas/gvm/run/ospd/ospd-logging.conf\
+ --unix-socket /usr/local/openvas/gvm/run/ospd/ospd.sock --socket-mode 00777\
+ --pid-file /usr/local/openvas/gvm/run/ospd/ospd.pid\
+ --log-file /usr/local/openvas/gvm/var/log/gvm/ospd-openvas.log\
+ --lock-file-dir /usr/local/openvas/gvm/run/ospd\
+ -L DEBUG
+ 
+gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --listen=0.0.0.0 --port=8888\
+ --disable-encrypted-credentials\
+ --unix-socket=/usr/local/openvas/gvm/run/gvm/gvmd.sock\
+ 
+gsad --http-only --listen=0.0.0.0 --port 9392 --mlisten=192.168.1.102 --mport=9390
+ 
+/usr/local/openvas/python/bin/gvm-cli --gmp-username admin --gmp-password admin --protocol GMP tls --hostname 127.0.0.1 --port 9390 --xml "<help/>" 
+/usr/local/openvas/python/bin/gvm-cli --gmp-username admin --gmp-password admin --protocol GMP socket --socketpath=/usr/local/openvas/gvm/run/gvm/gvmd.sock --xml "<help/>" 
+
+5. create pg:
+createuser -h /usr/local/openvas/gvm/run/postgresql -DRS root
+createdb -h /usr/local/openvas/gvm/run/postgresql -O root gvmd
+
+psql -h /usr/local/openvas/gvm/run/postgresql -c "create role dba with superuser noinherit" gvmd
+psql -h /usr/local/openvas/gvm/run/postgresql -c"grant dba to root" gvmd
+
+psql -h /usr/local/openvas/gvm/run/postgresql -c"create extension \"uuid-ossp\"" gvmd
+psql -h /usr/local/openvas/gvm/run/postgresql -c"create extension \"pgcrypto\"" gvmd
+
+6. create gvm:
+gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --migrate
+
+gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --create-user=admin --password=admin
+gvmd_uuid_users=$(gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --get-users --verbose | awk '$1 == "admin" { print $2 }')
+gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --modify-setting 78eceaec-3385-11ea-b237-28d24461215b --value $gvmd_uuid_users
+
+gvmd_scanner_uuid=$(gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --get-scanners --verbose | awk '$2 == "OpenVAS" {print $1}')
+gvmd --modify-scanner=$gvmd_scanner_uuid --scanner-host=/usr/local/openvas/gvm/run/ospd/ospd.sock
+
+7.php编译so
+(1)源码编译安装php。
+(2)ext_skel --extname=gvm_util --proto=funcs
+(3)修改gvm_util/config.m4，删除一下三行的dnl注释：
+PHP_ARG_ENABLE(gvm_util, whether to enable gvm_util support,
+Make sure that the comment is aligned:
+[  --enable-gvm_util           Enable gvm_util support])
+(4)修改gvm_util.c中对应的自定义函数。
+(5)执行phpsize.
+(6)./configure --with-php-config=php-config
+(7)make GVM_UTIL_SHARED_LIBADD="-Wl,-rpath=/opt/var/private -L/opt/var/private -lphp_openvas"
+(8)修改php.ini，增加extension=gvm_util.so
+
