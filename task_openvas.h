@@ -20,7 +20,7 @@ extern "C" {
 #define UUID_REG_PATTERN "[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}"
 #define GVM_RSP_STATUS_OK_PATTERN "^<%s_response status=\"([0-9]{3})\" "
 
-#define GVM_NAME_PATTERN "[^\\#|'~`!^$,:;?\"&*%<>[:space:]]{1,128}"
+#define GVM_NAME_PATTERN "[^\\/#|'~`!^$,:;?\"&*%<>[:space:]]{1,128}"
 #define CUSTOM_DIGIT_NUM_PATTERN "[0-9]{1,3}"
 #define CUSTOM_TIME_STAMP_PATTERN "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}"
 #define DEF_XML_OK_RSP_MARK "<%s status=\"20[0-9]\" status_text=\"[^\">]*\" id=\"(%s)\"/?>" 

@@ -679,3 +679,93 @@ int deleteFile(const char path[]) {
     return ret;
 }
 
+/* return: 0:ok, -1:open err, -2: write err, -3: rename err */
+int writeFile(const kb_buf_t buffer, const char normalFile[], 
+    const char tmpFile[]) {
+    int ret = 0;
+    int cnt = 0;
+    int total = 0;
+    int left = 0;
+    FILE* file = NULL;
+    
+    left = (int)buffer->m_size; 
+    
+    file = fopen(tmpFile, "wb");
+    if (NULL != file) { 
+        while (0 < left && !ferror(file)) {
+            cnt = fwrite(&buffer->m_buf[total], 1, left, file);
+            if (0 < cnt) {
+                total += cnt;
+                left -= cnt;
+            }
+        }
+        
+        fclose(file);
+
+        if (0 == left) {
+            ret = rename(tmpFile, normalFile);
+            if (0 != ret) { 
+                LOG_ERROR("write_file| old=%s| new=%s|"
+                    " size=%d| msg=rename file error:%s|",
+                    tmpFile, normalFile, total, ERRMSG);
+
+                ret = -3;
+            }
+        } else {
+            LOG_ERROR("write_file| name=%s|"
+                " total=%d| wr_size=%d| msg=write error:%s|",
+                tmpFile, (int)buffer->m_size, total, ERRMSG);
+
+            ret = -2;
+        }
+    } else {
+        LOG_ERROR("write_file| name=%s| msg=open file error:%s|", 
+            tmpFile, ERRMSG);
+        
+        ret = -1;
+    } 
+    
+    return ret;
+}
+
+/* return: 0:ok, -1:open err, -2: write err */ 
+int appendFile(const kb_buf_t buffer, const char path[]) {
+    int ret = 0;
+    int cnt = 0;
+    int total = 0;
+    int left = 0;
+    FILE* file = NULL; 
+
+    left = (int)buffer->m_size; 
+    
+    file = fopen(path, "ab");
+    if (NULL != file) { 
+        while (0 < left && !ferror(file)) {
+            cnt = fwrite(&buffer->m_buf[total], 1, left, file);
+            if (0 < cnt) {
+                total += cnt;
+                left -= cnt;
+            }
+        }
+        
+        fclose(file);
+
+        if (0 == left) {
+            ret = 0;
+        } else {
+            LOG_ERROR("append_file| name=%s|"
+                " total=%d| wr_size=%d| msg=write error:%s|",
+                path, (int)buffer->m_size, total, ERRMSG);
+
+            ret = -2;
+        }
+    } else {
+        LOG_ERROR("append_file| name=%s| msg=open file error:%s|", 
+            path, ERRMSG);
+        ret = -1;
+    } 
+
+    return ret;
+}
+
+

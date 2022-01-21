@@ -162,7 +162,16 @@ extern int nowTimeStamp(char psz[], int maxlen);
 extern int utc2LocalTime(char local[], int maxlen, const char utc[]);
 extern int local2SchedTime(char sched[], int maxlen, const char local[]);
 
+/* delete a file, return: 0-delete, 1:no file, -2: fail for directory, -1: error */
 extern int deleteFile(const char path[]);
+
+/* write buffer to a tmpfile, then overrides the normal file,
+    return: 0:ok, -1:open err, -2: write err, -3: rename err */
+extern int writeFile(const kb_buf_t buffer, const char normalFile[],
+    const char tmpFile[]);
+
+/* append buffer to file,  return: 0:ok, -1:open err, -2: write err  */
+extern int appendFile(const kb_buf_t buffer, const char path[]);
 
 #ifdef __cplusplus
 }

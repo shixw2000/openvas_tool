@@ -1807,7 +1807,6 @@ static int writeTaskFile(GvmDataList_t data, kb_buf_t buffer) {
     int ret = 0;
     char tmpFile[MAX_FILENAME_PATH_SIZE] = {0};
     char normalFile[MAX_FILENAME_PATH_SIZE] = {0};
-    FILE* hd = NULL;
 
     snprintf(tmpFile, MAX_FILENAME_PATH_SIZE, "%s/.%s",
             data->m_task_priv_dir, data->m_task_file_name);
@@ -1818,27 +1817,7 @@ static int writeTaskFile(GvmDataList_t data, kb_buf_t buffer) {
     buffer->m_size = 0;
     ret = for_each(&data->m_createque, writeTaskRecord, (void*)buffer);
     if (0 == ret) {
-        hd = fopen(tmpFile, "wb");
-        if (NULL != hd) { 
-            ret = fwrite(buffer->m_buf, 1, buffer->m_size, hd); 
-            fclose(hd);
-
-            if (buffer->m_size == ret) {
-                ret = rename(tmpFile, normalFile);
-                if (0 != ret) {
-                    LOG_ERROR("writeTaskFile| old=%s| new=%s| msg=rename file error:%s|",
-                        tmpFile, normalFile, ERRMSG);
-                }
-            } else {
-                LOG_ERROR("writeTaskFile| name=%s| size=%d| wr_len=%d| msg=write error|", 
-                    tmpFile, (int)buffer->m_size, ret);
-                ret = -1;
-            }
-        } else {
-            LOG_ERROR("writeTaskFile| name=%s| msg=open file error:%s|", 
-                tmpFile, ERRMSG);
-            ret = -1;
-        } 
+        ret = writeFile(buffer, normalFile, tmpFile); 
     }
     
     return ret;
@@ -2031,10 +2010,8 @@ static int readAllTaskStatusRecs(GvmDataList_t data) {
 static int writeTaskStatusFile(GvmDataList_t data, 
     ListGvmTask_t task, kb_buf_t buffer) {
     int ret = 0;
-    int cnt = 0;
     char tmpFile[MAX_FILENAME_PATH_SIZE] = {0};
     char normalFile[MAX_FILENAME_PATH_SIZE] = {0};
-    FILE* hd = NULL;
 
     snprintf(tmpFile, MAX_FILENAME_PATH_SIZE, "%s/."DEF_GVM_TASK_STATUS_FILE_PATT,
             data->m_task_priv_dir, task->m_task_info.m_task_name);
@@ -2052,32 +2029,8 @@ static int writeTaskStatusFile(GvmDataList_t data,
         task->m_report_info.m_cur_report_id, 
         task->m_report_info.m_last_report_id, 
         "");
-    
-    hd = fopen(tmpFile, "wb");
-    if (NULL != hd) { 
-        cnt = fwrite(buffer->m_buf, 1, buffer->m_size, hd);
-        fclose(hd);
 
-        if (cnt == (int)buffer->m_size) {
-            ret = rename(tmpFile, normalFile);
-            if (0 != ret) {
-                LOG_ERROR("write_task_status_file| old=%s| new=%s|"
-                    " size=%d| msg=rename file error:%s|",
-                    tmpFile, normalFile, (int)buffer->m_size, ERRMSG);
-            }
-        } else {
-            LOG_ERROR("write_task_status_file| name=%s|"
-                " total=%d| wr_cnt=%d| msg=write error|",
-                tmpFile, (int)buffer->m_size, cnt);
-
-            ret = -1;
-        }
-    } else {
-        LOG_ERROR("write_task_status_file| name=%s| msg=open file error:%s|", 
-            tmpFile, ERRMSG);
-        ret = -1;
-    } 
-    
+    ret = writeFile(buffer, normalFile, tmpFile);
     return ret;
 }
 
@@ -2180,13 +2133,8 @@ int chkTaskBusy(GvmDataList_t data, ListGvmTask_t task) {
 
 int writeTaskResult(GvmDataList_t data, ListGvmTask_t task, kb_buf_t outbuf) {
     int ret = 0;
-    int cnt = 0;
-    int total = 0;
     char tmpFile[MAX_FILENAME_PATH_SIZE] = {0};
     char normalFile[MAX_FILENAME_PATH_SIZE] = {0};
-    FILE* hd = NULL;
-    const char* psz = NULL;
-    static const char DEF_EMPTY_RESULT[] = "empty"; 
 
     snprintf(tmpFile, MAX_FILENAME_PATH_SIZE, "%s/."DEF_GVM_TASK_RESULT_FILE_PATT,
             data->m_task_priv_dir, task->m_task_info.m_task_name);
@@ -2194,42 +2142,9 @@ int writeTaskResult(GvmDataList_t data, ListGvmTask_t task, kb_buf_t outbuf) {
     snprintf(normalFile, MAX_FILENAME_PATH_SIZE, "%s/"DEF_GVM_TASK_RESULT_FILE_PATT,
         data->m_task_priv_dir, task->m_task_info.m_task_name);
 
-    if (0 < outbuf->m_size) {
-        psz = outbuf->m_buf;
-        total = (int)outbuf->m_size;
-    } else {
-        psz = DEF_EMPTY_RESULT;
-        total  = (int)strlen(DEF_EMPTY_RESULT);
-    }
-    
-    hd = fopen(tmpFile, "wb");
-    if (NULL != hd) {   
-        cnt = fwrite(psz, 1, total, hd);
-        fclose(hd);
-
-        if (cnt == total) {
-            ret = rename(tmpFile, normalFile);
-            if (0 != ret) {
-                LOG_ERROR("write_task_result_file| old=%s| new=%s|"
-                    " size=%d| msg=rename file error:%s|",
-                    tmpFile, normalFile, total, ERRMSG);
-            }
-        } else {
-            LOG_ERROR("write_task_result_file| name=%s|"
-                " total=%d| wr_cnt=%d| msg=write error|",
-                tmpFile, total, cnt);
-
-            ret = -1;
-        }
-    } else {
-        LOG_ERROR("write_task_status_file| name=%s| msg=open file error:%s|", 
-            tmpFile, ERRMSG);
-        ret = -1;
-    } 
-    
+    ret = writeFile(outbuf, normalFile, tmpFile);    
     return ret;
-}
-
+} 
 
 static const struct GvmTaskOperation DEFAULT_TASK_OPS = {
     newGvmTask,
