@@ -88,7 +88,7 @@ static struct gvm_task_handler g_hds[] = {
 static const char GVM_CMD_MARK[] = "/usr/local/openvas/python/bin/gvm-cli"
     " --timeout 5"
     " --gmp-username admin --gmp-password 123456"
-    " tls --xml \"%s\" 2>&1";
+    " tls --xml \"%s\" 2>&1 </dev/null";
 #else
 static const char GVM_CMD_MARK[] = "/usr/local/openvas/python/bin/gvm-cli"
     " --timeout 5"
@@ -119,6 +119,7 @@ static int clearKb(kb_t kb) {
     return ret;
 }
 
+/* return: 0: ok, -1: error */
 static int exeCmd(const kb_buf_t cmdbuf, kb_buf_t output) {
     int ret = 0;
     int left = 0;
@@ -136,6 +137,7 @@ static int exeCmd(const kb_buf_t cmdbuf, kb_buf_t output) {
             cnt = fread(&output->m_buf[output->m_size], 1, left, file);
             if (0 < cnt) {
                 output->m_size += cnt;
+                left -= cnt;
             }
         }
 
@@ -156,7 +158,7 @@ static int exeCmd(const kb_buf_t cmdbuf, kb_buf_t output) {
     return ret;
 }
 
-/* return 0:ok, 1:status not ok, -1:fail */
+/* return 0:ok, 1: response format err, 2: response not 2**,  -1: error */
 int procGvmTask(const char* cmd, kb_buf_t cmdbuf, kb_buf_t output) {
     int ret = 0;
     int left = 0;
@@ -267,6 +269,8 @@ static void timerPerMinute(kb_buf_t tmpbuf, kb_buf_t outbuf) {
     if (0 == (g_min_cnt & 0x1FF)) {
         clearLogFile(7);
     } 
+
+    validateGvmConn(g_gvm_data, tmpbuf, outbuf);
 }
  
 static void triggerTimerPerMinute(kb_buf_t tmpbuf, kb_buf_t outbuf) {
@@ -759,6 +763,11 @@ int daemon_start_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbu
             break;
         }
 
+        if (!g_gvm_data->task_ops->is_gvm_conn_ok(g_gvm_data)) {
+            ret = GVM_ERR_GVMD_CONN;
+            break;
+        }
+
         task = g_gvm_data->task_ops->find_task(g_gvm_data, key);
         if (NULL == task) {
             LOG_ERROR("daemon_start_task| name=%s| task_id=%s| target_id=%s|"
@@ -830,6 +839,11 @@ int daemon_stop_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outbuf
         ret = getKeyTaskParam(input, key);
         if (0 != ret) {
             ret = GVM_ERR_PARAM_INVALID;
+            break;
+        }
+
+        if (!g_gvm_data->task_ops->is_gvm_conn_ok(g_gvm_data)) {
+            ret = GVM_ERR_GVMD_CONN;
             break;
         }
 
@@ -964,6 +978,11 @@ int daemon_delete_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
         ret = getKeyTaskParam(input, key);
         if (0 != ret) {
             ret = GVM_ERR_PARAM_INVALID;
+            break;
+        }
+
+        if (!g_gvm_data->task_ops->is_gvm_conn_ok(g_gvm_data)) {
+            ret = GVM_ERR_GVMD_CONN;
             break;
         }
 
@@ -1211,6 +1230,11 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
         ret = getCreateTaskParam(input, task);
         if (0 != ret) {
             ret = GVM_ERR_PARAM_INVALID;
+            break;
+        }
+
+        if (!g_gvm_data->task_ops->is_gvm_conn_ok(g_gvm_data)) {
+            ret = GVM_ERR_GVMD_CONN;
             break;
         }
         
@@ -2131,7 +2155,7 @@ int chkTaskBusy(GvmDataList_t data, ListGvmTask_t task) {
     }
 }
 
-int writeTaskResult(GvmDataList_t data, ListGvmTask_t task, kb_buf_t outbuf) {
+static int writeTaskResult(GvmDataList_t data, ListGvmTask_t task, kb_buf_t outbuf) {
     int ret = 0;
     char tmpFile[MAX_FILENAME_PATH_SIZE] = {0};
     char normalFile[MAX_FILENAME_PATH_SIZE] = {0};
@@ -2145,6 +2169,10 @@ int writeTaskResult(GvmDataList_t data, ListGvmTask_t task, kb_buf_t outbuf) {
     ret = writeFile(outbuf, normalFile, tmpFile);    
     return ret;
 } 
+
+static int getGvmConnStatus(GvmDataList_t data) {
+    return data->m_is_gvm_conn_ok;
+}
 
 static const struct GvmTaskOperation DEFAULT_TASK_OPS = {
     newGvmTask,
@@ -2176,6 +2204,8 @@ static const struct GvmTaskOperation DEFAULT_TASK_OPS = {
 
     printGvmTask,
     printAllTaskRecs,
+
+    getGvmConnStatus,
 };
 
 GvmDataList_t createData() {

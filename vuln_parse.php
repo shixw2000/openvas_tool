@@ -364,7 +364,6 @@ function parse_nvt_config($nvt_filepath, $group_file, $plugin_dir) {
 function write_nvt_config($group_nvt_data, $basedir) {
 	$dir = $basedir . "/";
 	
-	
 	foreach($group_nvt_data as $group_id => $group_info) {
 		$index=sprintf("%08d-0000-0000-0000-000000000000", $group_id);
 		$filepath = $dir . "policy_{$index}.xml";
@@ -598,8 +597,6 @@ function read_gvm_tasks($dir, $taskfile) {
 					$create_time=$matchs[1];
 				}
 				
-				
-				
 				$task=array();
 				$task['task_id'] = $task_id;
 				$task['task_name'] = $task_name;
@@ -649,9 +646,6 @@ function read_gvm_config_file($filepath) {
 			
 			if(preg_match('/0*(.*)/',$group_part,$matchs)) {
 				$group_id=$matchs[1];
-			} else {
-				#invalid group id
-				break;
 			}
 			
 			if(preg_match('/<name>(.*)<\/name>/',$content,$matchs)) {
@@ -682,8 +676,8 @@ function read_gvm_task_group($dir) {
 				$item = read_gvm_config_file($cur_path);
 				
 				if (!empty($item)) {
-					$group_id = $item['group_id'];
-					$data[ $group_id ] = $item;
+					$config_id = $item['config_id'];
+					$data[ $config_id ] = $item;
 				}
             }
         }

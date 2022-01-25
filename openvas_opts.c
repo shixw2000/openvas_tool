@@ -27,7 +27,7 @@
 #define REQ_GVM_CREAT_CONFIG_EX_MARK "<create_config><name>wEb_%s</name>"\
 "<comment>%s</comment>"\
 "<usage_type>scan</usage_type>"\
-"<muli_copy>%s</muli_copy>"
+"<multi_copy>%s</multi_copy></create_config>"
 
 #define REQ_GVM_DELETE_CONFIG_MARK "<delete_config config_id=\"%s\"/>"
 
@@ -36,11 +36,11 @@
 #define NODE_TEXT(doc, node) xmlNodeListGetString(doc, node->xmlChildrenNode, 0)
 
 static const int DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_END] = {
-    60, // check task 
-    30, // check report
+    300, // check task 
+    120, // check report
     5,  // check result
     
-    60, // check deleted
+    300, // check deleted
 }; 
 
 int getNodeText(xmlDocPtr doc, xmlNodePtr node, char* buf, int maxlen);
@@ -344,6 +344,22 @@ enum GVM_TASK_STATUS convRunStatusName(const char* val) {
     }
 
     return status;
+}
+
+int gvm_get_version(char ver[], int maxlen,
+    kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    int ret = 0;
+
+    tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity, 
+        "<get_version/>");
+    ret = procGvmTask("get_version", tmpbuf, outbuf); 
+    if (0 == ret) {
+        if (NULL != ver) {
+            getXmlTagVal(outbuf->m_buf, "version", ver, maxlen);
+        }
+    }
+
+    return ret;
 }
 
 int gvm_create_schedule(const char* name, enum ICAL_DATE_REP_TYPE type,
@@ -1370,6 +1386,11 @@ int runGvmChecks(GvmDataList_t data, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     ListGvmTask_t task = NULL; 
 
     do {
+        /* if gvm is connect error, no operations */
+        if (!data->task_ops->is_gvm_conn_ok(data)) {
+            break;
+        }
+        
         _list = get_head(&data->m_runque);
         if (NULL == _list) {
             /* if no task in the queue */
@@ -1383,7 +1404,7 @@ int runGvmChecks(GvmDataList_t data, kb_buf_t tmpbuf, kb_buf_t outbuf) {
         ret = isTaskChkTimeExpired(task);
         if (!ret) {
             break;
-        }
+        } 
 
         if (GVM_TASK_CHK_TASK == task->m_chk_type) {
             /* query task status */
@@ -1602,4 +1623,30 @@ int testParseXmlSimpleAttr(const kb_buf_t buffer,
 }
 
 
+int validateGvmConn(GvmDataList_t data, kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    static int is_last_status_ok = 1;
+    int ret = 0;
+
+    ret = gvm_get_version(NULL, 0, tmpbuf, outbuf);
+    if (0 == ret) {
+        if (!is_last_status_ok) {
+            is_last_status_ok = 1;
+        }
+
+        if (!data->m_is_gvm_conn_ok) {
+            data->m_is_gvm_conn_ok = 1;
+        }
+    } else {
+        /* if Two consecutive failures, then set conn status to fail */
+        if (is_last_status_ok) {
+            is_last_status_ok = 0;
+        } else {
+            if (data->m_is_gvm_conn_ok) {
+                data->m_is_gvm_conn_ok = 0;
+            }
+        } 
+    }
+  
+    return ret;
+}
 

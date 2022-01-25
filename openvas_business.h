@@ -155,6 +155,7 @@ struct GvmDataList {
     const struct GvmTaskOperation* task_ops; 
     char m_task_file_name[MAX_FILENAME_PATH_SIZE];
     char m_task_priv_dir[MAX_FILENAME_PATH_SIZE];
+    int m_is_gvm_conn_ok;
 };
 
 typedef struct GvmDataList* GvmDataList_t;
@@ -194,6 +195,8 @@ struct GvmTaskOperation {
 
     void (*print_task)(const ListGvmTask_t task);
     void (*print_all_tasks)(GvmDataList_t, int);
+
+    int (*is_gvm_conn_ok)(GvmDataList_t);
 };
 
 extern void setTaskStatus(ListGvmTask_t task, enum GVM_TASK_STATUS status);

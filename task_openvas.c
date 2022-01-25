@@ -359,7 +359,7 @@ int chkTimeStamp(const char* text) {
     return ret;
 }
 
-/* 0: ok, -1: error, -2: response error */
+/* 0: ok, 1: response format err, 2: response not 2**,  -1: error */
 int chkRspStatusOk(const char* cmd, const char* text) {
     int ret = 0;
     int len = 0;
@@ -371,15 +371,13 @@ int chkRspStatusOk(const char* cmd, const char* text) {
     snprintf(pattern, MAX_BUFFER_SIZE, GVM_RSP_STATUS_OK_PATTERN, cmd);
     ret = regcomp(&reg, pattern, REG_EXTENDED);
     if (0 != ret) {
-        LOG_ERROR("%s: regcompile error|", __FUNCTION__);
         return -1;
     }
 
     do {
         ret = regexec(&reg, text, 2, matchs, 0);
         if (0 != ret) {
-            LOG_ERROR("%s: invalid response|", __FUNCTION__);
-            ret = -1;
+            ret = 1;
             break;
         }
 
@@ -388,12 +386,10 @@ int chkRspStatusOk(const char* cmd, const char* text) {
         val[len] = '\0';
         
         if ('2' == val[0]) {
-            /* response is ok as 20* */
+            /* response is ok as 2** */
             ret = 0;
         } else {
-            LOG_ERROR("%s: status=%s| msg=response error|", 
-                __FUNCTION__, val);
-            ret = -2;
+            ret = 2;
         }
     } while (0);
     

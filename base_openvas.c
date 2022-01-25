@@ -663,7 +663,9 @@ int deleteFile(const char path[]) {
     if (0 == ret) {
         if (!S_ISDIR(buf.st_mode)) {
             ret = unlink(path);
-            if (0 != ret) {
+            if (0 == ret) {
+                LOG_INFO("delete_file| path=%s| msg=delete file ok|", path);
+            } else {
                 ret = -1;
             }
         } else {
