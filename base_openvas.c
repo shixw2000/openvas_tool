@@ -6,6 +6,8 @@
 #include<sys/stat.h> 
 #include<unistd.h> 
 #include<hiredis.h>
+#include<ctype.h>
+
 
 #define _XOPEN_SOURCE 
 #define __USE_XOPEN
@@ -177,6 +179,25 @@ static kb_t redis_conn () {
     return NULL;
 }
 
+static int redis_expire (kb_t kb, const char *name, int ttl) {
+    struct kb_redis *kbr = NULL;
+    redisReply *rep = NULL;
+    int rc = 0;
+
+    kbr = redis_kb (kb);
+    rep = redis_cmd (kbr, "EXPIRE %s %d", name, ttl);
+    
+    if (!rep || rep->type == REDIS_REPLY_ERROR) {
+        rc = -1;
+    }
+
+    if (rep) {
+        freeReplyObject (rep);
+    }
+
+    return rc;
+}
+
 
 static int redis_push_str (kb_t kb, const char *name, const char *value, size_t len) {
     struct kb_redis *kbr = NULL;
@@ -244,14 +265,38 @@ static int redis_pop_str (kb_t kb, const char *name, kb_buf_t output) {
     return ret;
 }
 
+static int redis_push_str_ttl(kb_t kb, const char* name, 
+    const char* value, size_t len, int ttl) {
+    int ret = 0;
+
+    ret = redis_push_str(kb, name, value, len);
+    if (0 == ret) {
+        redis_expire(kb, name, ttl);    
+    }
+
+    return ret;
+}
+
+static int redis_push_int_ttl(kb_t kb, const char* name, int val, int ttl) {
+    int ret = 0;
+    char buf[MAX_COMM_MIN_SIZE] = {0};
+
+    snprintf(buf, ARR_SIZE(buf), "%d", val);
+    ret = redis_push_str_ttl(kb, name, buf, 0, ttl);
+
+    return ret;
+}
+
+
 /* 1: ok, 0:empty, -1:error */ 
-static int redis_bpop_str (kb_t kb, const char *name, kb_buf_t output) {
+static int redis_bpop_str (kb_t kb, const char *name, 
+    kb_buf_t output, int timeout) {
     int ret = 0;
     struct kb_redis *kbr = NULL;
     redisReply *rep = NULL;
 
     kbr = redis_kb (kb);
-    rep = redis_cmd (kbr, "BRPOP %s 1", name); 
+    rep = redis_cmd (kbr, "BRPOP %s %d", name, timeout); 
     if (NULL != rep) { 
         if (rep->type == REDIS_REPLY_ARRAY && 2 == rep->elements
             && REDIS_REPLY_STRING == rep->element[1]->type
@@ -291,6 +336,33 @@ static int redis_bpop_str (kb_t kb, const char *name, kb_buf_t output) {
     return ret;
 }
 
+/* 1: ok, 0:empty, -1:error */ 
+static int redis_bpop_int (kb_t kb, const char *name, 
+    int* val, int timeout) {
+    int ret = 0;
+    int i = 0;
+    char tmp[MAX_COMM_MIN_SIZE] = {0};
+    struct kb_buf buf = {MAX_COMM_MIN_SIZE-1, 0, (char*)&tmp};
+
+    ret = redis_bpop_str(kb, name, &buf, timeout);
+    if (1 == ret) {
+        /* allow negative number */
+        if (!isdigit(buf.m_buf[0]) && '-' != buf.m_buf[0]) {
+            return -1;
+        }
+        
+        for (i=1; i<buf.m_size; ++i) {
+            if (!isdigit(buf.m_buf[i])) {
+                return -1;
+            } 
+        }
+
+        *val = atoi(buf.m_buf);
+    }
+
+    return ret;
+} 
+
 static int redis_del_items (kb_t kb, const char *name) {
     struct kb_redis *kbr = NULL;
     redisReply *rep = NULL;
@@ -318,15 +390,25 @@ static const struct kb_operations KBRedisOperations = {
     
     redis_lnk_reset,
 
+    redis_expire,
+
     redis_push_str,
     redis_pop_str,
+
+    redis_push_str_ttl,
+    redis_push_int_ttl,
     redis_bpop_str,
+    redis_bpop_int,
 
     redis_del_items,
 };
 
 const struct kb_operations *KBDefaultOperations = &KBRedisOperations;
 
+
+void initBuf(kb_buf_t buffer) {
+    memset(buffer, 0, sizeof(struct kb_buf));
+}
 
 int genBuf(size_t len, kb_buf_t buffer) {    
     buffer->m_buf = (char*)calloc(1, len + 1);
@@ -647,124 +729,6 @@ int local2SchedTime(char sched[], int maxlen, const char local[]) {
         if (0 == ret) {
             ret = time2asc(&time, CUSTOM_SCHEDULE_TIME_MARK, sched, maxlen, 0);
         }
-    } 
-
-    return ret;
-}
-
-/* delete a file(if symbolic, then the link itself), but not a directory
-    return: 0-delete, 1:no file, -2: fail for directory, -1: error
-*/
-int deleteFile(const char path[]) {
-    int ret = 0;
-    struct stat buf;
-
-    ret = lstat(path, &buf);
-    if (0 == ret) {
-        if (!S_ISDIR(buf.st_mode)) {
-            ret = unlink(path);
-            if (0 == ret) {
-                LOG_INFO("delete_file| path=%s| msg=delete file ok|", path);
-            } else {
-                ret = -1;
-            }
-        } else {
-            ret = -2;
-        }
-    } else if (ENOENT == errno) {
-        /* file not exists */
-        ret = 1;
-    } else {
-        ret = -1;
-    }
-
-    return ret;
-}
-
-/* return: 0:ok, -1:open err, -2: write err, -3: rename err */
-int writeFile(const kb_buf_t buffer, const char normalFile[], 
-    const char tmpFile[]) {
-    int ret = 0;
-    int cnt = 0;
-    int total = 0;
-    int left = 0;
-    FILE* file = NULL;
-    
-    left = (int)buffer->m_size; 
-    
-    file = fopen(tmpFile, "wb");
-    if (NULL != file) { 
-        while (0 < left && !ferror(file)) {
-            cnt = fwrite(&buffer->m_buf[total], 1, left, file);
-            if (0 < cnt) {
-                total += cnt;
-                left -= cnt;
-            }
-        }
-        
-        fclose(file);
-
-        if (0 == left) {
-            ret = rename(tmpFile, normalFile);
-            if (0 != ret) { 
-                LOG_ERROR("write_file| old=%s| new=%s|"
-                    " size=%d| msg=rename file error:%s|",
-                    tmpFile, normalFile, total, ERRMSG);
-
-                ret = -3;
-            }
-        } else {
-            LOG_ERROR("write_file| name=%s|"
-                " total=%d| wr_size=%d| msg=write error:%s|",
-                tmpFile, (int)buffer->m_size, total, ERRMSG);
-
-            ret = -2;
-        }
-    } else {
-        LOG_ERROR("write_file| name=%s| msg=open file error:%s|", 
-            tmpFile, ERRMSG);
-        
-        ret = -1;
-    } 
-    
-    return ret;
-}
-
-/* return: 0:ok, -1:open err, -2: write err */ 
-int appendFile(const kb_buf_t buffer, const char path[]) {
-    int ret = 0;
-    int cnt = 0;
-    int total = 0;
-    int left = 0;
-    FILE* file = NULL; 
-
-    left = (int)buffer->m_size; 
-    
-    file = fopen(path, "ab");
-    if (NULL != file) { 
-        while (0 < left && !ferror(file)) {
-            cnt = fwrite(&buffer->m_buf[total], 1, left, file);
-            if (0 < cnt) {
-                total += cnt;
-                left -= cnt;
-            }
-        }
-        
-        fclose(file);
-
-        if (0 == left) {
-            ret = 0;
-        } else {
-            LOG_ERROR("append_file| name=%s|"
-                " total=%d| wr_size=%d| msg=write error:%s|",
-                path, (int)buffer->m_size, total, ERRMSG);
-
-            ret = -2;
-        }
-    } else {
-        LOG_ERROR("append_file| name=%s| msg=open file error:%s|", 
-            path, ERRMSG);
-        ret = -1;
     } 
 
     return ret;

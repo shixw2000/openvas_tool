@@ -37,6 +37,8 @@ extern "C" {
 
 #define ARR_SIZE(arr) (sizeof(arr)/sizeof(arr[0]))
 
+typedef const char* const_char_t; 
+
 struct kb_operations; 
 
 struct kb {
@@ -59,12 +61,20 @@ struct kb_operations {
     int (*kb_delete)(kb_t); 
     
     int (*kb_lnk_reset) (kb_t);
+
+    int (*kb_expire)(kb_t, const char* name, int ttl);
     
     int (*kb_push_str)(kb_t, const char *, const char *, size_t len);
 
     /* 1: ok, 0:empty, -1:error */
     int (*kb_pop_str)(kb_t, const char *, kb_buf_t); 
-    int (*kb_bpop_str)(kb_t, const char *, kb_buf_t); 
+
+    int (*kb_push_str_ttl)(kb_t, const char *, const char *, size_t len, int ttl);
+    int (*kb_push_int_ttl)(kb_t, const char *, int val, int ttl);
+
+    /* 1: ok, 0:empty, -1:error */
+    int (*kb_bpop_str)(kb_t, const char *, kb_buf_t, int timeout); 
+    int (*kb_bpop_int)(kb_t, const char *, int*, int timeout); 
 
     int (*kb_del_items)(kb_t, const char *);
 };
@@ -75,8 +85,7 @@ enum {
     MAX_MSG_SIZE = 4096,
     MAX_UUID_SIZE = 64,
     MAX_GROUP_SIZE = 32,
-    MAX_TASK_NAME_SIZE = 256,
-    MAX_NAME_SIZE = MAX_TASK_NAME_SIZE,
+    MAX_NAME_SIZE = 64,
     MAX_HOSTS_SIZE = 256,
     MAX_BUFFER_SIZE = 1024,
     MAX_COMM_SIZE = 256,
@@ -89,12 +98,75 @@ enum {
 
     DEF_DAY_SECONDS = 24 * 3600,
 
+    MAX_CMD_PARAM_SIZE = 64,
+    MAX_NVT_NAME_SIZE = 256, 
 };
+
+/* attensiont: must not be changed for anything */
+#define TASK_INFO_BEG_MARK "\n==========begin========\n"
+
+/* attensiont: must not be changed for anything */ 
+#define TASK_INFO_END_MARK "\n==========end==========\n"
+
 
 #define CUSTOM_COMM_PATTERN "[^\\'`\"]*"
 #define CUSTOM_SCHEDULE_TYPE_PATTERN "[0-9]"
 #define CUSTOM_SCHEDULE_TIME_MARK "%Y%m%dT%H%M%SZ"
 #define CUSTOM_ON_OFF_PATTERN "[01]"
+#define CUSTOM_PORT_PATTERN "([1-5]?[0-9]{1,4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[012][0-9]|6553[0-5])"
+#define CUSTOM_SERVICES_PATTERN "[-[:alnum:],]*"
+
+
+#define CUSTOM_MATCH_OR_NULL(x) "("x")?"
+#define CUSTOM_MATCH_OR_REPEAT(x) "("x")(,("x"))*" 
+#define CUSTOM_MATCH_OR_REPEAT_EX(x) "("x")([,[:space:]]+("x"))*" 
+
+#define CUSTOM_WHOLE_MATCH(x) "^"x"$"
+#define CUSTOM_WHOLE_MATCH_OR_NULL(x) CUSTOM_WHOLE_MATCH(CUSTOM_MATCH_OR_NULL(x))
+#define CUSTOM_WHOLE_MATCH_OR_REPEAT(x) CUSTOM_WHOLE_MATCH(CUSTOM_MATCH_OR_REPEAT(x)) 
+#define CUSTOM_WHOLE_MATCH_OR_REPEAT_EX(x) CUSTOM_WHOLE_MATCH(CUSTOM_MATCH_OR_REPEAT_EX(x))
+
+
+#define UUID_REG_PATTERN "[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}"
+#define GVM_RSP_STATUS_OK_PATTERN "^<%s_response status=\"([0-9]{3})\" "
+
+#define GVM_NAME_PATTERN "[^\\/#|'~`!^$,:;?\"&*%<>[:space:]]{1,128}"
+#define CUSTOM_DIGIT_NUM_PATTERN "[0-9]{1,3}"
+#define CUSTOM_TIME_STAMP_PATTERN "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}"
+#define DEF_XML_OK_RSP_MARK "<%s status=\"20[0-9]\" status_text=\"[^\">]*\" id=\"(%s)\"/?>" 
+
+#define CUSTOM_WEEK_DAY_PATTERN "MO|TU|WE|TH|FR|SA|SU"
+#define CUSTOM_MONTH_DAY_PATTERN "[1-9]|[12][0-9]|30|31|-1"
+#define CUSTOM_IP_NUM "([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
+#define CUSTOM_IP_PATTERN CUSTOM_IP_NUM"(\\."CUSTOM_IP_NUM"){3}"
+#define CUSTOM_IP_RANGE_PATTERN CUSTOM_IP_PATTERN \
+    "|" CUSTOM_IP_PATTERN "/[0-9]{1,2}" \
+    "|" CUSTOM_IP_PATTERN"-"CUSTOM_IP_PATTERN \
+    "|" CUSTOM_IP_PATTERN"-[0-9]{1,3}"
+
+#define CUSTOM_WHOLE_MATCH_IPS_EX CUSTOM_WHOLE_MATCH_OR_REPEAT_EX(CUSTOM_IP_RANGE_PATTERN)
+#define CUSTOM_WHOLE_MATCH_IPS_NORMAL CUSTOM_WHOLE_MATCH_OR_REPEAT(CUSTOM_IP_RANGE_PATTERN)
+
+#define CUSTOM_HOST_OR_PORT(x) "("x")(:"CUSTOM_PORT_PATTERN")?"
+
+#define CUSTORM_IP_OR_PORT CUSTOM_HOST_OR_PORT(CUSTOM_IP_PATTERN)
+#define CUSTOM_WHOLE_MATCH_IP_LIST CUSTOM_WHOLE_MATCH_OR_REPEAT_EX(CUSTORM_IP_OR_PORT)
+#define CUSTOM_WHOLE_MATCH_IP_LIST_INTERN CUSTOM_WHOLE_MATCH_OR_REPEAT(CUSTORM_IP_OR_PORT) 
+
+#define CUSTOM_IP_BLOCK CUSTOM_IP_PATTERN"/(1[6-9]|2[0-9]|30|31)"
+#define CUSTOM_IP_BLOCK_OR_PORT CUSTOM_HOST_OR_PORT(CUSTOM_IP_BLOCK)
+#define CUSTOM_WHOLE_MATCH_IP_BLOCK CUSTOM_WHOLE_MATCH(CUSTOM_IP_BLOCK_OR_PORT)
+
+#define TOKEN_END_CHAR '\0'
+#define DEF_WIN_CR_LF "\r\n"
+#define DEF_EMPTY_STR "" 
+
+
+/* file size must be not greater than 10M */ 
+#define MAX_TASK_FILE_SIZE 0xA00000 
+
+#define MAX_REDIS_WAIT_TIMEOUT 15 // 15 s
+
 
 enum ICAL_DATE_REP_TYPE {
     ICAL_DATE_NONE,
@@ -120,13 +192,19 @@ static inline kb_t kb_conn() {
     return KBDefaultOperations->kb_conn();
 }
 
-static inline int kb_push_str(kb_t kb, const char *name, const char *value, size_t len) {
+static inline int kb_push_str(kb_t kb, const char *name, 
+    const char *value, size_t len) {
     return kb->kb_ops->kb_push_str(kb, name, value, len);
 }
 
+static inline int kb_push_result_ttl(kb_t kb, const char *name,
+    int result, int ttl) {
+    return kb->kb_ops->kb_push_int_ttl(kb, name, result, ttl);
+}
+
 /* 1: ok, 0:empty, -1:error */ 
-static inline int kb_bpop_str(kb_t kb, const char *name, kb_buf_t output) {
-    return kb->kb_ops->kb_bpop_str(kb, name, output);
+static inline int kb_bpop_result(kb_t kb, const char *name, int* presult, int timeout) {
+    return kb->kb_ops->kb_bpop_int(kb, name, presult, timeout);
 }
 
 /* 1: ok, 0:empty, -1:error */ 
@@ -139,6 +217,7 @@ static inline int kb_del_items(kb_t kb, const char *name) {
 }
 
 
+extern void initBuf(kb_buf_t buffer);
 extern int genBuf(size_t len, kb_buf_t buffer);
 extern void freeBuf(kb_buf_t buffer);
 
@@ -162,16 +241,6 @@ extern int nowTimeStamp(char psz[], int maxlen);
 extern int utc2LocalTime(char local[], int maxlen, const char utc[]);
 extern int local2SchedTime(char sched[], int maxlen, const char local[]);
 
-/* delete a file, return: 0-delete, 1:no file, -2: fail for directory, -1: error */
-extern int deleteFile(const char path[]);
-
-/* write buffer to a tmpfile, then overrides the normal file,
-    return: 0:ok, -1:open err, -2: write err, -3: rename err */
-extern int writeFile(const kb_buf_t buffer, const char normalFile[],
-    const char tmpFile[]);
-
-/* append buffer to file,  return: 0:ok, -1:open err, -2: write err  */
-extern int appendFile(const kb_buf_t buffer, const char path[]);
 
 #ifdef __cplusplus
 }

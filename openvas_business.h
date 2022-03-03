@@ -34,6 +34,14 @@ enum GVM_TASK_CHK_TYPE {
     GVM_TASK_CHK_END
 }; 
 
+static const int DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_END] = {
+    300, // check task 
+    120, // check report
+    5,  // check result
+    
+    300, // check deleted
+};
+
 
 struct gvm_target_info {
     char m_target_name[MAX_NAME_SIZE];
@@ -84,6 +92,16 @@ struct gvm_report_info {
 
 typedef struct gvm_report_info* gvm_report_info_t;
 
+enum OPENVAS_PATH_TYPE {
+    OPENVAS_TASK_DIR,
+    OPENVAS_STATUS_FILE,
+    OPENVAS_STATUS_FILE_TMP,
+    OPENVAS_RESULT_FILE,
+    OPENVAS_RESULT_FILE_TMP, 
+
+    OPENVAS_PATH_END
+};
+
 struct ListGvmTask {
     struct LList m_mainlist; /* used by create queue, ***Must be the first item */
     struct LList m_runlist; /* used by running queue */
@@ -94,13 +112,15 @@ struct ListGvmTask {
     
     enum GVM_TASK_CHK_TYPE m_chk_type;
     long long m_chk_time; 
+
+    char m_paths[OPENVAS_PATH_END][MAX_FILENAME_PATH_SIZE];
 };
 
 typedef struct ListGvmTask* ListGvmTask_t; 
 
 struct ResultNvtInfo {
     char res_id[MAX_UUID_SIZE];
-    char res_name[MAX_NAME_SIZE];
+    char res_name[MAX_NVT_NAME_SIZE];
     char res_host[MAX_HOSTS_SIZE];
     char res_threat[MAX_COMM_MIN_SIZE];
     char res_severity[MAX_COMM_MIN_SIZE];
@@ -131,11 +151,13 @@ typedef struct ListNvtInfo* ListNvtInfo_t;
 /* task config file */
 #define DEF_GVM_TASK_FILE_NAME "gvm_task_file"
 
+#define DEF_GVM_TASK_DIR_PATT "task_%s"
+
 /* task status file */
-#define DEF_GVM_TASK_STATUS_FILE_PATT "task_%s"
+#define DEF_GVM_TASK_STATUS_FILE_PATT "gvm_status_file"
 
 /* result file */
-#define DEF_GVM_TASK_RESULT_FILE_PATT "result_%s"
+#define DEF_GVM_TASK_RESULT_FILE_PATT "gvm_result_file"
 
 
 #define DEF_GVM_PRIV_DATA_DIR "/usr/local/openvas/gvm/var/private"
@@ -182,7 +204,8 @@ struct GvmTaskOperation {
 
     int (*write_task_result_file)(GvmDataList_t, ListGvmTask_t task, kb_buf_t outbuf);
 
-    int (*del_task_relation_files)(GvmDataList_t, ListGvmTask_t task);
+    int (*write_task_relation_files)(GvmDataList_t, ListGvmTask_t task, kb_buf_t buffer);
+    int (*del_task_relation_files)(GvmDataList_t, ListGvmTask_t task, kb_buf_t buffer);
 
     /* return: 1-running, 0: not running */
     int (*chk_task_running)(GvmDataList_t, ListGvmTask_t task);
@@ -197,6 +220,8 @@ struct GvmTaskOperation {
     void (*print_all_tasks)(GvmDataList_t, int);
 
     int (*is_gvm_conn_ok)(GvmDataList_t);
+
+    int (*prepare_paths)(GvmDataList_t, ListGvmTask_t task);
 };
 
 extern void setTaskStatus(ListGvmTask_t task, enum GVM_TASK_STATUS status);
@@ -217,7 +242,7 @@ extern int finishDaemon();
 extern int setBackgroud();
 extern int isRun();
 
-extern int startKbMsg();
+extern int startKbMsg(const char* msg_queue_name);
 extern int stopKbMsg();
 
 /* return 0:ok, 1:status not ok, -1:fail */ 

@@ -19,6 +19,11 @@ static struct php_task_handler g_hds[] = {
     PHP_TASK_HANDLER(delete_task),
     PHP_TASK_HANDLER(create_task),
 
+    PHP_TASK_HANDLER(start_hydra),
+    PHP_TASK_HANDLER(stop_hydra),
+    PHP_TASK_HANDLER(delete_hydra),
+    PHP_TASK_HANDLER(create_hydra),
+
     {NULL, NULL}
 };
 

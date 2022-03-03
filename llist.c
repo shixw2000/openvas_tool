@@ -24,7 +24,6 @@ static void delListItem(LList_t item) {
     reset(item);
 }
 
-
 /* add the new item before the current one*/
 static void addPrev(LList_t curr, LList_t newItr) {
     newItr->next = curr;
@@ -101,10 +100,14 @@ int freeListSet(ListSet_t arr, PFree pf) {
     
     if (NULL != arr->m_data) {
         for (n=0; n<arr->m_size; ++n) {
-            if (NULL != pf) {
-                pf(arr->m_data[n]);
-            } else {
-                free(arr->m_data[n]);
+            if (NULL != arr->m_data[n]) {
+                if (NULL != pf) {
+                    pf(arr->m_data[n]);
+                } else {
+                    free(arr->m_data[n]);
+                }
+
+                arr->m_data[n] = NULL;
             }
         }
         
@@ -203,65 +206,6 @@ int for_each(ListQueue_t root, PWork work, void* ctx) {
     }
 
     return ret;
-}
-
-/* head is the least one */
-static void sortListRoot(ListQueue_t root) {
-    int ret = 0;
-    LList_t curr = NULL, next = NULL, prev = NULL;
-
-    next = root->m_head.next;
-    while (next != &root->m_head) {
-        curr = next;
-        next = next->next;
-        
-        prev = curr->prev;
-        while (prev != &root->m_head) {
-            ret = root->m_cmp(prev, curr);
-            if (0 < ret) {
-                /* prev is greater than curr, go ahead */
-                prev = prev->prev;
-            } else {
-                /* prev is less than or equal to curr, insert after here*/
-                break;
-            }
-        }
-
-        if (prev != curr->prev) {
-            delListItem(curr);
-            addNext(prev, curr);
-        }
-    }
-}
-
-
-/* selected sort */
-static void sortListArr(LList_t arr[], int size, PComp cmp) {
-    int ret = 0;
-    int i = 0, j=0;
-    LList_t curr = NULL;
-    
-    for (i=1; i<size; ++i) {
-        curr = arr[i];
-        
-        for (j=i-1; j>=0; --j) {
-            ret = cmp(arr[j], curr);
-            if (0 < ret) {
-                arr[j+1] = arr[j];
-            } else {
-                break;
-            }
-        }
-
-        /* j is -1, or arr[j] lt itr */
-        arr[j+1] = curr;
-    }
-}
-
-static void sortListSet(ListSet_t listset) {
-    if (1 < listset->m_size) {
-        sortListArr(listset->m_data, listset->m_size, listset->m_cmp);
-    }
 }
 
 /* binary search in range [low, high) */

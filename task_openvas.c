@@ -8,24 +8,36 @@
 #include<regex.h>
 #include"base_openvas.h" 
 #include"task_openvas.h"
+#include"comm_misc.h"
 
 
-int sendKbMsg(const char* key, const char* cmd, size_t len) {
+/*  send and wait for response in 15s, return 0: get response ok */ 
+int sendKbMsg(const char* key, char uuid[], const char* cmd, size_t len) {
     int ret = 0;
+    int result = 0;
     kb_t kb = NULL;
 
     kb = kb_conn();
     if (NULL == kb) {
-        return -1;
+        return GVM_ERR_REDIS_CONN;
     }
 
     do {
         ret = kb_push_str(kb, key, cmd, len);
         if (0 != ret) {
+            ret = GVM_ERR_FAIL;
             break;
         }
 
-        ret = 0;
+        /* 1: get ok */
+        ret = kb_bpop_result(kb, uuid, &result, MAX_REDIS_WAIT_TIMEOUT);
+        if (1 == ret) {
+            ret = result;
+        } else if (0 == ret) {
+            ret = GVM_ERR_WAIT_TIMEOUT;
+        } else {
+            ret = GVM_ERR_FAIL;
+        }
     } while (0);
 
     kb_delete(kb);
@@ -36,6 +48,7 @@ int sendKbMsg(const char* key, const char* cmd, size_t len) {
 int php_start_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     int ret = 0;
     struct php_key_task_param oParam;
+    char uuid[MAX_UUID_SIZE] = {0};
 
     do {
         ret = getPhpKeyTaskParam(input, &oParam, tmpbuf);
@@ -46,21 +59,31 @@ int php_start_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
             break;
         }
 
+        ret = genUUID(uuid, ARR_SIZE(uuid));
+        if (0 != ret) { 
+            LOG_ERROR("php_start_task| msg=gen uuid error|" );
+
+            ret = GVM_ERR_INTERNAL_FAIL;
+            break;
+        }
+
         tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
-            "%s%s%s%s%s%s%s%s", 
+            "%s%s%s%s%s%s%s%s%s%s", 
+            uuid, OPENVAS_KB_DELIM,
             "start_task", OPENVAS_KB_DELIM,
+            
             oParam.m_task_name, OPENVAS_KB_DELIM,
             oParam.m_task_id, OPENVAS_KB_DELIM,
             oParam.m_target_id, OPENVAS_KB_DELIM);
-        ret = sendKbMsg(OPENVAS_MSG_NAME, tmpbuf->m_buf, tmpbuf->m_size);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, uuid, tmpbuf->m_buf, tmpbuf->m_size);
         if (0 != ret) { 
-            LOG_INFO("php_start_task| taskname=%s| task_id=%s| target_id=%s|"
+            LOG_INFO("php_start_task| ret=%d| taskname=%s| task_id=%s| target_id=%s|"
                 " msg=send msg error|",
+                ret,
                 oParam.m_task_name,
                 oParam.m_task_id,
                 oParam.m_target_id);
 
-            ret = GVM_ERR_REDIS_CONN;
             break;
         }
 
@@ -77,6 +100,7 @@ int php_start_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
 int php_stop_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     int ret = 0;
     struct php_key_task_param oParam;
+    char uuid[MAX_UUID_SIZE] = {0};
 
     do {
         ret = getPhpKeyTaskParam(input, &oParam, tmpbuf);
@@ -87,21 +111,31 @@ int php_stop_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
             break;
         }
 
+        ret = genUUID(uuid, ARR_SIZE(uuid));
+        if (0 != ret) { 
+            LOG_ERROR("php_stop_task| msg=gen uuid error|" );
+
+            ret = GVM_ERR_INTERNAL_FAIL;
+            break;
+        }
+
         tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
-            "%s%s%s%s%s%s%s%s", 
+            "%s%s%s%s%s%s%s%s%s%s", 
+            uuid, OPENVAS_KB_DELIM,
             "stop_task", OPENVAS_KB_DELIM,
+            
             oParam.m_task_name, OPENVAS_KB_DELIM,
             oParam.m_task_id, OPENVAS_KB_DELIM,
             oParam.m_target_id, OPENVAS_KB_DELIM);
-        ret = sendKbMsg(OPENVAS_MSG_NAME, tmpbuf->m_buf, tmpbuf->m_size);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, uuid, tmpbuf->m_buf, tmpbuf->m_size);
         if (0 != ret) { 
-            LOG_INFO("php_stop_task| taskname=%s| task_id=%s| target_id=%s|"
+            LOG_INFO("php_stop_task| ret=%d| taskname=%s| task_id=%s| target_id=%s|"
                 " msg=send msg error|",
+                ret,
                 oParam.m_task_name,
                 oParam.m_task_id,
                 oParam.m_target_id);
 
-            ret = GVM_ERR_REDIS_CONN;
             break;
         }
 
@@ -118,6 +152,7 @@ int php_stop_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
 int php_delete_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     int ret = 0;
     struct php_key_task_param oParam;
+    char uuid[MAX_UUID_SIZE] = {0};
 
     do {
         ret = getPhpKeyTaskParam(input, &oParam, tmpbuf);
@@ -128,21 +163,31 @@ int php_delete_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
             break;
         }
 
+        ret = genUUID(uuid, ARR_SIZE(uuid));
+        if (0 != ret) { 
+            LOG_ERROR("php_delete_task| msg=gen uuid error|" );
+
+            ret = GVM_ERR_INTERNAL_FAIL;
+            break;
+        }
+
         tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
-            "%s%s%s%s%s%s%s%s", 
+            "%s%s%s%s%s%s%s%s%s%s", 
+            uuid, OPENVAS_KB_DELIM,
             "delete_task", OPENVAS_KB_DELIM,
+            
             oParam.m_task_name, OPENVAS_KB_DELIM,
             oParam.m_task_id, OPENVAS_KB_DELIM,
             oParam.m_target_id, OPENVAS_KB_DELIM);
-        ret = sendKbMsg(OPENVAS_MSG_NAME, tmpbuf->m_buf, tmpbuf->m_size);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, uuid, tmpbuf->m_buf, tmpbuf->m_size);
         if (0 != ret) { 
-            LOG_ERROR("php_delete_task| taskname=%s| task_id=%s| target_id=%s|"
+            LOG_ERROR("php_delete_task| ret=%d| taskname=%s| task_id=%s| target_id=%s|"
                 " msg=send msg error|",
+                ret,
                 oParam.m_task_name,
                 oParam.m_task_id,
                 oParam.m_target_id);
 
-            ret = GVM_ERR_REDIS_CONN;
             break;
         }
 
@@ -159,6 +204,7 @@ int php_delete_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
 int php_create_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
     int ret = 0;
     php_create_task_param_t param = NULL; 
+    char uuid[MAX_UUID_SIZE] = {0};
     
     param = calloc(1, sizeof(struct php_create_task_param));
     if (NULL == param) {
@@ -172,10 +218,20 @@ int php_create_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
             ret = GVM_ERR_PARAM_INVALID;
             break;
         }
+
+        ret = genUUID(uuid, ARR_SIZE(uuid));
+        if (0 != ret) { 
+            LOG_ERROR("php_create_task| msg=gen uuid error|" );
+
+            ret = GVM_ERR_INTERNAL_FAIL;
+            break;
+        }
         
         tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
-            "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
+            "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", 
+            uuid, OPENVAS_KB_DELIM,
             "create_task", OPENVAS_KB_DELIM,
+            
             param->m_task_name, OPENVAS_KB_DELIM,
             param->m_group_id, OPENVAS_KB_DELIM,
             param->m_group_name,  OPENVAS_KB_DELIM,
@@ -183,7 +239,7 @@ int php_create_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
             param->m_schedule_type, OPENVAS_KB_DELIM,
             param->m_schedule_time, OPENVAS_KB_DELIM,
             param->m_schedule_list, OPENVAS_KB_DELIM);
-        ret = sendKbMsg(OPENVAS_MSG_NAME, tmpbuf->m_buf, tmpbuf->m_size);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, uuid, tmpbuf->m_buf, tmpbuf->m_size);
         if (0 == ret) { 
             LOG_INFO("php_create_task| task_name=%s|"
                 " group_id=%s| group_name=%s|"
@@ -201,11 +257,12 @@ int php_create_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
                 param->m_schedule_time,
                 param->m_schedule_list);
         } else {
-            LOG_ERROR("php_create_task| task_name=%s|"
+            LOG_ERROR("php_create_task| ret=%d| task_name=%s|"
                 " group_id=%s| group_name=%s|"
                 " host=%s|"
                 " schedule_type=%s| schedule_time=%s| schedule_list=%s|"
                 " msg=send msg error|",
+                ret,
                 param->m_task_name,
                 
                 param->m_group_id,
@@ -217,7 +274,6 @@ int php_create_task(const char* input, int inputlen, kb_buf_t tmpbuf) {
                 param->m_schedule_time,
                 param->m_schedule_list);
 
-            ret = GVM_ERR_REDIS_CONN;
             break;
         }
     } while (0);
@@ -487,31 +543,41 @@ int extractAttrUuid(const char* text, const char* tag, char* uuid, int maxlen) {
     return ret;
 }
 
+/* return: >0: ok total cnt escaped, 0: error */
 int escapeXml(const char* xml, char* out, int maxlen) {
     int cnt = 0;
     const char* psz = NULL;
 
     for (psz=xml; '\0' != *psz && cnt < (maxlen-1); ++psz) {
         if ('\"' == *psz) {
-            if (cnt < maxlen-1) {
+            if (cnt < maxlen-2) {
                 out[cnt++] = '\\';
                 out[cnt++] = '\"';
+            } else {
+                /* exceeds max length */
+                break;
             }
         } else {
             out[cnt++] = *psz;
         }
+    } 
+    
+    if (0 < cnt && '\0' == *psz) { 
+        out[cnt] = '\0';
+        return cnt;
+    } else {
+        out[0] = '\0';
+        return 0;
     }
-
-    out[cnt] = '\0'; 
-    return cnt;
 }
 
+/* return: 0: ok, -1: err */
 int escapeHosts(char* hosts) {
     int cnt = 0;
     int isDelim = 0;
-    char* psz = NULL;
-    
-    for (psz = hosts; *psz; ++psz) {
+    const char* psz = NULL;
+
+    for (psz = hosts; '\0' != *psz; ++psz) {
         if (isdigit(*psz) || '/' == *psz || '.' == *psz || '-' == *psz) {
             hosts[cnt++] = *psz;
 
@@ -526,114 +592,19 @@ int escapeHosts(char* hosts) {
         }
     }
 
+    if (0 < cnt && ',' == hosts[cnt-1]) {
+        /* erase the last ',' */
+        hosts[--cnt] = '\0';
+    } else {
+        hosts[cnt] = '\0';
+    }
+
     if (0 < cnt) {
-        if (',' == hosts[cnt-1]) {
-            hosts[cnt-1] = '\0';
-        } else {
-            hosts[cnt] = '\0';
-        }
-
-        return 0;
-    } else {
-        hosts[0] = '\0';
-        return -1;
-    }
-}
-
-int trimText(char* text) {
-    int size = 0;
-    int cnt = 0;
-    char* beg = NULL;
-    char* end = NULL;
-    
-    size = (int)strnlen(text, MAX_MSG_SIZE);
-    if (MAX_MSG_SIZE > size) {
-        beg = text;
-        end = text + size;
-        
-        while (beg < end && isspace(*beg)) {
-            ++beg;
-        }
-        
-        while (end > beg && isspace(*(end-1))) {
-            --end;
-        }
-
-        if (end > beg) {
-            cnt = (int)(end - beg);
-            if (cnt < size) {
-                memmove(text, beg, cnt);
-                text[cnt] = '\0';
-            } 
-            
-            return 0;
-        } else {
-            /* empty text */
-            text[0] = '\0';
-            return -1;
-        } 
-    } else {
-        /* do nothing  */
-        return -1;
-    }
-}
-
-/* return: 0: ok, 1: empty, -1: exceed max size  */
-int getNextToken(const char* text, const char* needle,
-    char* buf, int maxlen, const_char_t* saveptr) {
-    int cnt = 0;
-    const char* psz = NULL;
-
-    if (NULL == text || '\0' == text[0]) {
-        return 1;
-    }
-    
-    psz = strstr(text, needle);
-    if (NULL != psz) {
-        cnt = (int)(psz - text);
-    } else {
-        /* total text */
-        cnt = (int)strnlen(text, maxlen);
-    }
-
-    if (0 <= cnt && cnt < maxlen) {
-        strncpy(buf, text, cnt);
-        buf[cnt] = '\0'; 
-
-        if (NULL != saveptr) {
-            if (NULL != psz) {
-                *saveptr = psz + strlen(needle);
-            } else {
-                *saveptr = text + cnt;
-            }
-        }
-
         return 0;
     } else {
         return -1;
     }
-}
-
-/* return: 0: ok, 1: empty, -1: exceed max size, -2: not digit */
-int getNextTokenInt(const char* text, const char* needle,
-    int* val, const_char_t* saveptr) {
-    int ret = 0;
-    char buf[MAX_COMM_MIN_SIZE] = {0};
-
-    *val = -1;
-    
-    ret = getNextToken(text, needle, buf, ARR_SIZE(buf), saveptr);
-    if (0 == ret) {
-        if (isdigit(buf[0])) {
-            *val = atoi(buf);
-        } else {
-            ret = -2;
-        }
-    }
-
-    return ret;
-}
-
+} 
 
 int getPatternKey(const char* text, const char* key, 
     const char* pattern, char* val, int maxlen) {
@@ -697,85 +668,6 @@ int getPatternKeyInt(const char* text, const char* key,
     } 
 
     return ret;
-}
-
-int readTotalFile(const char name[], kb_buf_t cache) {
-    int ret = 0;
-    FILE* hd = NULL;
-    struct stat buf;
-
-    memset(cache, 0, sizeof(struct kb_buf));
-    
-    ret = stat(name, &buf);
-    if (0 != ret) {
-        if (ENOENT == ERRCODE) {
-            /* file not exists */
-            LOG_DEBUG("readTotalFile| name=%s| msg=file not exists|", name);
-            
-            return 1;
-        } else {
-            LOG_ERROR("readTotalFile| name=%s| msg=stat file error:%s|", 
-            name, ERRMSG);
-            return -1;
-        } 
-    }
-    
-    if (!S_ISREG(buf.st_mode)) {
-        LOG_ERROR("readTotalFile| name=%s| error=not a regular file|", name);
-        return -1;
-    } else if (!(S_IRUSR & buf.st_mode)) {
-        LOG_ERROR("readTotalFile| name=%s| error=cannot read the file|", name);
-        return -1;
-    } else if (buf.st_size > MAX_TASK_FILE_SIZE) {
-        LOG_ERROR("readTotalFile| name=%s| size=%ld|"
-            " error=file size exceeds maxsize[%d]|", 
-            name, (long)buf.st_size, MAX_TASK_FILE_SIZE);
-        return -1;    
-    } else if (0 < buf.st_size) {
-        /* valid file size */
-        ret = genBuf(buf.st_size, cache);
-        if (0 != ret) {
-            LOG_ERROR("readTotalFile| name=%s| size=%ld|"
-                " error=no memory allocated|", 
-                name, (long)buf.st_size);
-
-            return -1; 
-        } 
-    } else {
-        /* empty file, no need to read */
-        LOG_DEBUG("readTotalFile| name=%s| msg=empty file|", name);
-        return 2;
-    }
-
-    hd = fopen(name, "rb");
-    if (NULL != hd) { 
-        cache->m_size = fread(cache->m_buf, 1, cache->m_capacity, hd);
-        fclose(hd);
-
-        if (cache->m_size == cache->m_capacity) {
-            cache->m_buf[ cache->m_size ] = '\0';
-
-            LOG_DEBUG("readTotalFile| name=%s| size=%d| msg=read ok|",
-                name, (int)cache->m_size);
-            
-            return 0;
-        } else {
-            LOG_ERROR("readTotalFile| name=%s| rdlen=%d| total=%d|"
-                " error=fread error|", 
-                name, (int)cache->m_size, (int)cache->m_capacity);
-            
-            /* free cache */
-            freeBuf(cache);
-            return -1;
-        }
-    } else {
-        LOG_ERROR("readTotalFile| name=%s| msg=open file error:%s|", 
-            name, ERRMSG);
-
-        /* free cache */
-        freeBuf(cache);
-        return -1;
-    } 
 }
 
 int getPhpCreateTaskParam(const char* input, php_create_task_param_t param,
@@ -1097,5 +989,679 @@ int test_regmatch(const char text[], const char pattern[]) {
 
     return ret;
 }
+
+
+
+/******** hydra operations *************/ 
+int getPhpKeyHydradParam(const char* text, php_key_hydra_param_t param,
+    kb_buf_t tmpbuf) {
+    int ret = 0;
+    int len = 0;
+    regex_t reg;
+    regmatch_t matchs[3];
+
+    tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity, 
+        "^taskname=\"(%s)\"&taskid=\"(%s)\"$", 
+        GVM_NAME_PATTERN, UUID_REG_PATTERN); 
+
+    ret = regcomp(&reg, tmpbuf->m_buf, REG_EXTENDED);
+    if (0 != ret) {
+        LOG_ERROR( "getPhpKeyHydraParam| patter=%s| msg=compile error|", 
+            tmpbuf->m_buf);
+        return -1;
+    }
+    
+    do { 
+        ret = regexec(&reg, text, 3, matchs, 0);
+        if (0 == ret) { 
+            /* task name */
+            len = matchs[1].rm_eo-matchs[1].rm_so;
+            if (len < (int)ARR_SIZE(param->m_task_name)) {
+                strncpy(param->m_task_name, &text[matchs[1].rm_so], len);
+                param->m_task_name[len] = '\0';
+            } else {
+                LOG_ERROR("getPhpKeyHydraParam| msg=task name size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_task_name));
+                ret = -1;
+                break;
+            }
+
+            /* task id */
+            len = matchs[2].rm_eo-matchs[2].rm_so;
+            if (len < (int)ARR_SIZE(param->m_task_id)) {
+                strncpy(param->m_task_id, &text[matchs[2].rm_so], len);
+                param->m_task_id[len] = '\0';
+            } else {
+                LOG_ERROR("getPhpKeyHydraParam| msg=task id size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_task_id));
+                ret = -1;
+                break;
+            }
+
+            ret = 0;
+        } else {
+            LOG_ERROR( "getPhpKeyHydraParam| text=%s| msg=invalid parameters|", text);
+            ret = -1;
+            break;
+        }
+    } while (0);
+
+    regfree(&reg);
+
+    return ret;
+}
+
+
+int php_start_hydra(const char* input, int inputlen, kb_buf_t tmpbuf) {
+    int ret = 0;
+    struct php_key_hydra_param oParam;
+    char uuid[MAX_UUID_SIZE] = {0};
+
+    do {
+        ret = getPhpKeyHydradParam(input, &oParam, tmpbuf);
+        if (0 != ret) { 
+            LOG_ERROR("php_start_hydra| msg=check parameters error|" );
+
+            ret = GVM_ERR_PARAM_INVALID;
+            break;
+        }
+
+        ret = genUUID(uuid, ARR_SIZE(uuid));
+        if (0 != ret) { 
+            LOG_ERROR("php_start_hydra| msg=gen uuid error|" );
+
+            ret = GVM_ERR_INTERNAL_FAIL;
+            break;
+        }
+
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            "%s%s%s%s%s%s%s%s", 
+            uuid, OPENVAS_KB_DELIM,
+            "start_hydra", OPENVAS_KB_DELIM,
+            
+            oParam.m_task_name, OPENVAS_KB_DELIM,
+            oParam.m_task_id, OPENVAS_KB_DELIM);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, uuid, tmpbuf->m_buf, tmpbuf->m_size);
+        if (0 != ret) { 
+            LOG_INFO("php_start_hydra| ret=%d| taskname=%s| task_id=%s|"
+                " msg=send msg error|",
+                ret,
+                oParam.m_task_name,
+                oParam.m_task_id);
+
+            break;
+        }
+
+        LOG_INFO("php_start_hydra| taskname=%s| task_id=%s|"
+            " msg=ok|",
+            oParam.m_task_name,
+            oParam.m_task_id);
+    } while (0);
+
+    return ret;
+}
+
+int php_stop_hydra(const char* input, int inputlen, kb_buf_t tmpbuf) {
+    int ret = 0;
+    struct php_key_hydra_param oParam;
+    char uuid[MAX_UUID_SIZE] = {0};
+
+    do {
+        ret = getPhpKeyHydradParam(input, &oParam, tmpbuf);
+        if (0 != ret) { 
+            LOG_ERROR("php_stop_hydra| msg=check parameters error|" );
+
+            ret = GVM_ERR_PARAM_INVALID;
+            break;
+        }
+
+        ret = genUUID(uuid, ARR_SIZE(uuid));
+        if (0 != ret) { 
+            LOG_ERROR("php_stop_hydra| msg=gen uuid error|" );
+
+            ret = GVM_ERR_INTERNAL_FAIL;
+            break;
+        }
+
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            "%s%s%s%s%s%s%s%s", 
+            uuid, OPENVAS_KB_DELIM,
+            "stop_hydra", OPENVAS_KB_DELIM,
+            
+            oParam.m_task_name, OPENVAS_KB_DELIM,
+            oParam.m_task_id, OPENVAS_KB_DELIM);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, uuid, tmpbuf->m_buf, tmpbuf->m_size);
+        if (0 != ret) { 
+            LOG_INFO("php_stop_hydra| ret=%d| taskname=%s| task_id=%s|"
+                " msg=send msg error|",
+                ret,
+                oParam.m_task_name,
+                oParam.m_task_id);
+
+            break;
+        }
+
+        LOG_INFO("php_stop_hydra| taskname=%s| task_id=%s|"
+            " msg=ok|",
+            oParam.m_task_name,
+            oParam.m_task_id);
+    } while (0);
+
+    return ret;
+}
+
+int php_delete_hydra(const char* input, int inputlen, kb_buf_t tmpbuf) {
+    int ret = 0;
+    struct php_key_hydra_param oParam;
+    char uuid[MAX_UUID_SIZE] = {0};
+
+    do {
+        ret = getPhpKeyHydradParam(input, &oParam, tmpbuf);
+        if (0 != ret) {
+            LOG_ERROR("php_delete_hydra| msg=check parameters error|" );
+
+            ret = GVM_ERR_PARAM_INVALID;
+            break;
+        }
+
+        ret = genUUID(uuid, ARR_SIZE(uuid));
+        if (0 != ret) { 
+            LOG_ERROR("php_delete_hydra| msg=gen uuid error|" );
+
+            ret = GVM_ERR_INTERNAL_FAIL;
+            break;
+        }
+
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            "%s%s%s%s%s%s%s%s", 
+            uuid, OPENVAS_KB_DELIM,
+            "delete_hydra", OPENVAS_KB_DELIM,
+            
+            oParam.m_task_name, OPENVAS_KB_DELIM,
+            oParam.m_task_id, OPENVAS_KB_DELIM);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, uuid, tmpbuf->m_buf, tmpbuf->m_size);
+        if (0 != ret) { 
+            LOG_ERROR("php_delete_hydra| ret=%d| taskname=%s| task_id=%s|"
+                " msg=send msg error|",
+                ret,
+                oParam.m_task_name,
+                oParam.m_task_id);
+
+            break;
+        }
+
+        LOG_INFO("php_delete_hydra| taskname=%s| task_id=%s|"
+            " msg=ok|",
+            oParam.m_task_name,
+            oParam.m_task_id);
+    } while (0);
+
+    return ret;
+}
+
+int chkHydraHosts(int hosts_type, const char* hosts) {
+    int ret = 0;
+
+    if (0 == hosts_type) {
+        ret = regmatch(hosts, CUSTOM_WHOLE_MATCH_IP_LIST);
+    } else if (1 == hosts_type) {
+        ret = regmatch(hosts, CUSTOM_WHOLE_MATCH_IP_BLOCK);
+    } else {
+        ret = -1;
+    }
+    
+    return ret;
+} 
+
+int escapeHydraHosts(char* hosts) {
+    int cnt = 0;
+    int isDelim = 0;
+    const char* psz = NULL;
+    
+    for (psz = hosts; *psz; ++psz) {
+        if (isdigit(*psz) || '/' == *psz || '.' == *psz || ':' == *psz) {
+            hosts[cnt++] = *psz;
+
+            if (isDelim) {
+                isDelim = 0;
+            }
+        } else {
+            if (!isDelim && 0 != cnt) {
+                hosts[cnt++] = ',';
+                isDelim = 1;
+            }
+        }
+    }
+    
+    if (0 < cnt && ',' == hosts[cnt-1]) {
+        /* erase the last ',' */
+        hosts[--cnt] = '\0';
+    } else {
+        hosts[cnt] = '\0';
+    }
+
+    if (0 < cnt) {
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
+int chkLoginList(const char* text) {
+    int ret = 0;
+
+    do {
+        ret = regmatch(text, CUSTOM_WHOLE_MATCH_OR_REPEAT(GVM_NAME_PATTERN));
+        if (0 != ret) {
+            break;
+        }
+    } while (0);
+
+    return ret;
+}
+
+int chkPasswdList(const char* text) {
+    int ret = 0;
+
+    do {
+        ret = regmatch(text, CUSTOM_WHOLE_MATCH_OR_REPEAT(GVM_NAME_PATTERN));
+        if (0 != ret) {
+            break;
+        }
+    } while (0);
+
+    return ret;
+}
+
+int chkServices(const char* text) {
+    int ret = 0;
+    int n = 0;
+    int has_service = 0;
+    const char* saveptr = NULL;
+    char service[MAX_NAME_SIZE] = {0};
+    const char* SYS_SERVICE_LIST[] = {
+        "ftp",
+        "ssh",
+        "telnet",
+        "rtsp",
+        "mysql",
+        "rdp",
+        "onvif",
+        "http-get"
+    };
+
+    saveptr = text;
+    while (1) {
+        ret = getNextToken(saveptr, ",", service, ARR_SIZE(service), &saveptr);
+        if (0 == ret) {
+            ret = -1;
+            
+            for (n=0; n<(int)ARR_SIZE(SYS_SERVICE_LIST); ++n) {
+                /* check if valid service */
+                if (0 == strcmp(SYS_SERVICE_LIST[n], service)) {
+                    if (!has_service) {
+                        has_service = 1;
+                    }
+                            
+                    ret = 0; 
+                    break;
+                }
+            }
+            
+            /* unmatched all, then invalid service*/
+            if (0 != ret) {
+                break;
+            } 
+        } else if (1 == ret) {
+            /* go to end of text */
+            if (has_service) {
+                ret = 0;
+            } else {
+                /* have nothing in text */
+                ret = -1;
+            }
+
+            break;
+        } else {
+            ret = -1;
+            break;
+        }
+    } 
+
+    return ret;
+}
+
+
+int getPhpCreateHydraParam(const char* input, 
+    php_create_hydra_param_t param, kb_buf_t tmpbuf) {
+    int ret = 0;
+    int len = 0;
+    int type = 0;
+    char hosts_type[MAX_COMM_MIN_SIZE] = {0};
+    regex_t reg;
+    regmatch_t matchs[11];
+
+    tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+        "^taskname=\"(%s)\"&hosts_type=\"(%s)\"&hosts=\"(%s)\"&services=\"(%s)\""
+        "&opts=\"(%s)\"&login_list=\"(%s)\"&passwd_list=\"(%s)\""
+        "&schdule_type=\"(%s)\"&schedule_time=\"(%s)?\"&schedule_list=\"(%s)\"$",
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_ON_OFF_PATTERN, 
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_SERVICES_PATTERN,
+        
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_COMM_PATTERN,
+        
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_COMM_PATTERN,
+        CUSTOM_COMM_PATTERN);
+
+    ret = regcomp(&reg, tmpbuf->m_buf , REG_EXTENDED);
+    if (0 != ret) {
+        LOG_ERROR("php_create_hydra| msg=compile error|" );
+        return -1;
+    }
+    
+    do { 
+        ret = regexec(&reg, input, 11, matchs, 0);
+        if (0 == ret) { 
+            /* task name */
+            len = matchs[1].rm_eo-matchs[1].rm_so;
+            if (len < (int)ARR_SIZE(param->m_task_name)) {
+                strncpy(param->m_task_name, &input[matchs[1].rm_so], len);
+                param->m_task_name[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=task name size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_task_name));
+                ret = -1;
+                break;
+            }
+            
+            /* hosts_type */
+            len = matchs[2].rm_eo-matchs[2].rm_so;
+            if (len < (int)ARR_SIZE(hosts_type)) {
+                strncpy(hosts_type, &input[matchs[2].rm_so], len);
+                hosts_type[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=hosts_type size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(hosts_type));
+                ret = -1;
+                break;
+            }
+
+            param->m_hosts_type = atoi(hosts_type);
+
+            /* hosts */
+            len = matchs[3].rm_eo-matchs[3].rm_so;
+            if (len < (int)ARR_SIZE(param->m_hosts)) {
+                strncpy(param->m_hosts, &input[matchs[3].rm_so], len);
+                param->m_hosts[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=hosts size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_hosts));
+                ret = -1;
+                break;
+            }             
+
+            /* services */
+            len = matchs[4].rm_eo-matchs[4].rm_so;
+            if (len < (int)ARR_SIZE(param->m_services)) {
+                strncpy(param->m_services, &input[matchs[4].rm_so], len);
+                param->m_services[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=services size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_services));
+                ret = -1;
+                break;
+            }
+
+            /* opts */
+            len = matchs[5].rm_eo-matchs[5].rm_so;
+            if (len < (int)ARR_SIZE(param->m_opts)) {
+                strncpy(param->m_opts, &input[matchs[5].rm_so], len);
+                param->m_opts[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=opts size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_opts));
+                ret = -1;
+                break;
+            }
+
+            /* login_list */
+            len = matchs[6].rm_eo-matchs[6].rm_so;
+            if (len < (int)ARR_SIZE(param->m_login_list)) {
+                strncpy(param->m_login_list, &input[matchs[6].rm_so], len);
+                param->m_login_list[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=login_list size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_login_list));
+                ret = -1;
+                break;
+            }
+
+            /* passwd_list */
+            len = matchs[7].rm_eo-matchs[7].rm_so;
+            if (len < (int)ARR_SIZE(param->m_passwd_list)) {
+                strncpy(param->m_passwd_list, &input[matchs[7].rm_so], len);
+                param->m_passwd_list[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=passwd_list size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_passwd_list));
+                ret = -1;
+                break;
+            }
+
+            /* schedule_type */
+            len = matchs[8].rm_eo-matchs[8].rm_so;
+            if (len < (int)ARR_SIZE(param->m_schedule_type)) {
+                strncpy(param->m_schedule_type, &input[matchs[8].rm_so], len);
+                param->m_schedule_type[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=schedule_type size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_schedule_type));
+                ret = -1;
+                break;
+            }
+
+            /* schedule_time */
+            len = matchs[9].rm_eo-matchs[9].rm_so;
+            if (len < (int)ARR_SIZE(param->m_schedule_time)) {
+                strncpy(param->m_schedule_time, &input[matchs[9].rm_so], len);
+                param->m_schedule_time[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=schedule_time size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_schedule_time));
+                ret = -1;
+                break;
+            }
+
+            /* schedule_list */
+            len = matchs[10].rm_eo-matchs[10].rm_so;
+            if (len < (int)ARR_SIZE(param->m_schedule_list)) {
+                strncpy(param->m_schedule_list, &input[matchs[10].rm_so], len);
+                param->m_schedule_list[len] = '\0';
+            } else {
+                LOG_ERROR("php_create_hydra| msg=schedule_list size[%d] exceeds maxlen[%d]|",
+                    len, (int)ARR_SIZE(param->m_schedule_list));
+                ret = -1;
+                break;
+            }
+        } else {
+            LOG_ERROR("php_create_hydra| text=%s| msg=invalid parameters", input);
+
+            ret = -1;
+            break;
+        }
+
+        ret = chkName(param->m_task_name);
+        if (0 != ret) {
+            LOG_ERROR("php_create_hydra| task_name=%s| msg=invalid task name|", 
+                param->m_task_name);
+            break;
+        }
+
+        ret = chkHydraHosts(param->m_hosts_type, param->m_hosts);
+        if (0 != ret) {
+            LOG_ERROR("php_create_hydra| task_name=%s| hosts_type=%d|"
+                " hosts=%s|msg=invalid hosts|", 
+                param->m_task_name,
+                param->m_hosts_type,
+                param->m_hosts);
+            break;
+        }
+
+        ret = chkLoginList(param->m_login_list);
+        if (0 != ret) {
+            LOG_ERROR("php_create_hydra| task_name=%s| login_list=%s|"
+                " msg=invalid login_list|", 
+                param->m_task_name, param->m_login_list);
+            break;
+        }
+
+        ret = chkPasswdList(param->m_passwd_list);
+        if (0 != ret) {
+            LOG_ERROR("php_create_hydra| task_name=%s| passwd_list=%s|"
+                " msg=invalid passwd_list|", 
+                param->m_task_name, param->m_passwd_list);
+            break;
+        } 
+
+        ret = escapeHydraHosts(param->m_hosts);
+        if (0 != ret) {
+            LOG_ERROR("php_create_hydra| task_name=%s| hosts_type=%s|"
+                " hosts=%s|msg=invalid hosts|", 
+                param->m_task_name,
+                param->m_hosts_type,
+                param->m_hosts);
+            break;
+        }
+
+        ret = chkServices(param->m_services);
+        if (0 != ret) {
+            LOG_ERROR("php_create_hydra| task_name=%s| services=%s|"
+                " hosts=%s|msg=invalid services|", 
+                param->m_task_name,
+                param->m_services,
+                param->m_hosts);
+            break;
+        }
+
+        type = atoi(param->m_schedule_type);
+        ret = chkScheduleParam(type, param->m_schedule_time, 
+            param->m_schedule_list);
+        if (0 != ret) {
+            LOG_ERROR("php_create_hydra| schedul_type=%s| schedul_time=%s|"
+                " schedul_list=%s| msg=invalid schedule parameters|", 
+                param->m_schedule_type, 
+                param->m_schedule_time,
+                param->m_schedule_list);
+            break;
+        }
+
+        ret = 0;
+    } while (0);
+
+    regfree(&reg);
+
+    return ret;
+}
+
+int php_create_hydra(const char* input, int inputlen, kb_buf_t tmpbuf) {
+    int ret = 0;
+    php_create_hydra_param_t param = NULL; 
+    char uuid[MAX_UUID_SIZE] = {0};
+    
+    param = calloc(1, sizeof(struct php_create_hydra_param));
+    if (NULL == param) {
+        LOG_ERROR("php_create_hydra| error=no memory|" );
+        return GVM_ERR_INTERNAL_FAIL;
+    }
+    
+    do { 
+        ret = getPhpCreateHydraParam(input, param, tmpbuf);
+        if (0 != ret) {
+            ret = GVM_ERR_PARAM_INVALID;
+            break;
+        }
+
+        ret = genUUID(uuid, ARR_SIZE(uuid));
+        if (0 != ret) { 
+            LOG_ERROR("php_create_hydra| msg=gen uuid error|" );
+
+            ret = GVM_ERR_INTERNAL_FAIL;
+            break;
+        }
+        
+        tmpbuf->m_size = snprintf(tmpbuf->m_buf, tmpbuf->m_capacity,
+            "%s%s%s%s"
+            "%s%s%d%s%s%s%s%s"
+            "%s%s%s%s%s%s"
+            "%s%s%s%s%s%s", 
+            uuid, OPENVAS_KB_DELIM,
+            "create_hydra", OPENVAS_KB_DELIM, 
+            
+            param->m_task_name, OPENVAS_KB_DELIM,
+            param->m_hosts_type, OPENVAS_KB_DELIM,
+            param->m_hosts,  OPENVAS_KB_DELIM,
+            param->m_services, OPENVAS_KB_DELIM,
+
+            param->m_opts, OPENVAS_KB_DELIM,
+            param->m_login_list, OPENVAS_KB_DELIM,
+            param->m_passwd_list, OPENVAS_KB_DELIM,
+            
+            param->m_schedule_type, OPENVAS_KB_DELIM,
+            param->m_schedule_time, OPENVAS_KB_DELIM,
+            param->m_schedule_list, OPENVAS_KB_DELIM);
+        ret = sendKbMsg(OPENVAS_MSG_NAME, uuid, tmpbuf->m_buf, tmpbuf->m_size);
+        if (0 == ret) { 
+            LOG_INFO("php_create_hydra| task_name=%s|"
+                " hosts_type=%d| hosts=%s| services=%s|"
+                " opts=%s| login_list=%s| passwd_list=%s|"
+                " schedule_type=%s| schedule_time=%s| schedule_list=%s|"
+                " msg=ok|",
+                param->m_task_name,
+                
+                param->m_hosts_type,
+                param->m_hosts, 
+                param->m_services,
+
+                param->m_opts,
+                param->m_login_list,
+                param->m_passwd_list,
+                
+                param->m_schedule_type,
+                param->m_schedule_time,
+                param->m_schedule_list);
+        } else {
+            LOG_ERROR("php_create_hydra| ret=%d| task_name=%s|"
+                " hosts_type=%d| hosts=%s| services=%s|"
+                " opts=%s| login_list=%s| passwd_list=%s|"
+                " schedule_type=%s| schedule_time=%s| schedule_list=%s|"
+                " msg=send msg error|",
+                ret,
+                param->m_task_name,
+                
+                param->m_hosts_type,
+                param->m_hosts, 
+                param->m_services,
+
+                param->m_opts,
+                param->m_login_list,
+                param->m_passwd_list,
+                
+                param->m_schedule_type,
+                param->m_schedule_time,
+                param->m_schedule_list);
+
+            break;
+        }
+    } while (0);
+
+    free(param);
+
+    return ret;
+} 
 
 

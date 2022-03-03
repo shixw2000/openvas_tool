@@ -43,9 +43,6 @@ extern int updateTaskReport(ListGvmTask_t task, const gvm_report_info_t info);
 extern void setTaskNextChkTime(ListGvmTask_t task, long long time);
 extern int isTaskChkTimeExpired(ListGvmTask_t task);
 
-extern int deleteTaskWhole(GvmDataList_t data, ListGvmTask_t task, kb_buf_t tmpbuf); 
-
-
 extern int gvm_get_version(char ver[], int maxlen,
     kb_buf_t tmpbuf, kb_buf_t outbuf);
 

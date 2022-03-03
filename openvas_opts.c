@@ -2,6 +2,7 @@
 #include<libxml/tree.h> 
 #include<libxml/xpath.h> 
 
+#include"comm_misc.h" 
 #include"openvas_opts.h"
 #include"task_openvas.h"
 
@@ -35,14 +36,7 @@
 //#define NODE_TEXT(doc, node) xmlNodeGetContent(node)
 #define NODE_TEXT(doc, node) xmlNodeListGetString(doc, node->xmlChildrenNode, 0)
 
-static const int DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_END] = {
-    300, // check task 
-    120, // check report
-    5,  // check result
-    
-    300, // check deleted
-}; 
-
+  
 int getNodeText(xmlDocPtr doc, xmlNodePtr node, char* buf, int maxlen);
 
 int initLibXml() {
@@ -705,12 +699,13 @@ int parseResult(const kb_buf_t buffer, gvm_result_info_t info) {
                 "/get_results_response/result_count/filtered",
                 val, ARR_SIZE(val));
             if (0 != ret) {
+                ret = -2;
                 break;
             }
 
             info->m_totalCnt = atoi(val);
             if (0 > info->m_totalCnt) {
-                ret = -1;
+                ret = -3;
                 break;
             }
         } 
@@ -724,7 +719,7 @@ int parseResult(const kb_buf_t buffer, gvm_result_info_t info) {
 
         obj = findPathNode(ctx, DEF_RESULT_PATH);
         if (NULL == obj) { 
-            ret = -1;
+            ret = -4;
             break;
         }
         
@@ -739,48 +734,55 @@ int parseResult(const kb_buf_t buffer, gvm_result_info_t info) {
             nvt = createNvtInfo();
             if (NULL == nvt) {
                 /* no memory */
-                ret = -1;
+                ret = -5;
                 break;
             }
 
             ret = getNodeAttr(cur, "id", nvt->m_nvtinfo.res_id,
                 ARR_SIZE(nvt->m_nvtinfo.res_id));
             if (0 != ret) {
+                ret = -6;
                 break;
             }
 
             ret = findChildNodeText(doc, cur, "name", nvt->m_nvtinfo.res_name,
                 ARR_SIZE(nvt->m_nvtinfo.res_name));
             if (0 != ret) {
+                ret = -7;
                 break;
             }
 
             ret = findChildNodeText(doc, cur, "threat", nvt->m_nvtinfo.res_threat,
                 ARR_SIZE(nvt->m_nvtinfo.res_threat));
             if (0 != ret) {
+                ret = -8;
                 break;
             }
 
             ret = findChildNodeText(doc, cur, "severity", nvt->m_nvtinfo.res_severity,
                 ARR_SIZE(nvt->m_nvtinfo.res_severity));
             if (0 != ret) {
+                ret = -9;
                 break;
             }
 
             ret = findChildNodeText(doc, cur, "port", nvt->m_nvtinfo.res_port,
                 ARR_SIZE(nvt->m_nvtinfo.res_port));
             if (0 != ret) {
+                ret = -10;
                 break;
             }
 
             ret = findChildNodeText(doc, cur, "host", nvt->m_nvtinfo.res_host,
                 ARR_SIZE(nvt->m_nvtinfo.res_host));
             if (0 != ret) {
+                ret = -11;
                 break;
             }
 
             ret = findChildNodeText(doc, cur, "creation_time", val, ARR_SIZE(val));
             if (0 != ret) {
+                ret = -12;
                 break;
             } 
             
@@ -789,12 +791,13 @@ int parseResult(const kb_buf_t buffer, gvm_result_info_t info) {
                 ARR_SIZE(nvt->m_nvtinfo.res_create_time),
                 val);
             if (0 != ret) {
+                ret = -13;
                 break;
             }
 
             child = findChildNode(cur, "nvt");
             if (NULL == child) {
-                ret = -1;
+                ret = -14;
                 break;
             }
             
@@ -802,6 +805,7 @@ int parseResult(const kb_buf_t buffer, gvm_result_info_t info) {
                 nvt->m_nvtinfo.res_cve,
                 ARR_SIZE(nvt->m_nvtinfo.res_cve));
             if (0 != ret) {
+                ret = -15;
                 break;
             } 
 
@@ -849,13 +853,15 @@ int parseResult(const kb_buf_t buffer, gvm_result_info_t info) {
         return ret;
     } else { 
         LOG_ERROR("parse_result| first=%d| rows=%d| act_cnt=%d|"
-            " total_cnt=%d| current_size=%d| done=%d| msg=parse nvt error|", 
+            " total_cnt=%d| current_size=%d| done=%d|"
+            " ret=%d| size=%d| msg=parse nvt error|", 
             info->m_first,
             info->m_rows,
             cnt,
             info->m_totalCnt,
             info->m_results.m_cnt,
-            info->m_done);
+            info->m_done,
+            ret, size);
 
         info->m_first = info->m_results.m_cnt + 1;
 
@@ -1174,10 +1180,7 @@ int backend_query_result(GvmDataList_t data,
             }
             
             /* write output result to file */
-            ret = data->task_ops->write_task_result_file(data, task, outbuf); 
-            if (0 != ret) {
-                break;
-            } 
+            data->task_ops->write_task_result_file(data, task, outbuf); 
 
             setTaskChkType(task, GVM_TASK_CHK_TASK); 
             interval = DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_TASK];
@@ -1417,9 +1420,10 @@ int runGvmChecks(GvmDataList_t data, kb_buf_t tmpbuf, kb_buf_t outbuf) {
             ret = backend_query_result(data, task, tmpbuf, outbuf);
         } else { 
             /* no check but delete the task */
-            ret = deleteTaskWhole(data, task, tmpbuf);
-            if (0 == ret) {
-                task = NULL;
+            ret = data->task_ops->del_task_relation_files(data, task, tmpbuf);
+            if (0 == ret) { 
+                /* memory free */
+                data->task_ops->free_task(task);
             } else {
                 /* fail to delete, then wait the next time */
                 setTaskNextChkTime(task, DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_DELETED]);
@@ -1432,37 +1436,6 @@ int runGvmChecks(GvmDataList_t data, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     } while (0); 
 
     return cnt;
-}
-
-/* if delete ok, task then is unvalid */
-int deleteTaskWhole(GvmDataList_t data, ListGvmTask_t task, kb_buf_t tmpbuf) {
-    int ret = 0;
-
-    /* delete task ok, notify to delete cache */
-    ret = data->task_ops->del_task(data, task);
-    if (0 == ret) {
-        data->task_ops->del_run_task(data, task); 
-        
-        data->task_ops->write_task_file(data, tmpbuf);
-        data->task_ops->del_task_relation_files(data, task); 
-
-        LOG_INFO("delete_task_whole| name=%s| task_id=%s| target_id=%s|"
-            " msg=del task all ok|",
-            task->m_task_info.m_task_name,
-            task->m_task_info.m_task_id,
-            task->m_target_info.m_target_id);
-
-        /* memory free */
-        data->task_ops->free_task(task); 
-    } else {
-        LOG_ERROR("delete_task_whole| name=%s| task_id=%s| target_id=%s|"
-            " msg=delete task error|",
-            task->m_task_info.m_task_name,
-            task->m_task_info.m_task_id,
-            task->m_target_info.m_target_id); 
-    }
-
-    return ret;
 }
 
 int testParseXmlPath(const kb_buf_t buffer, const char* path) {

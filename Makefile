@@ -11,19 +11,20 @@ SO_FLAG=-Wall -g -fPIC
 SO_LINK=-shared
 INC=-I$(root_dir)/include/hiredis -I$(root_dir)/include/libxml2 
 LIBS=-Wl,-rpath=$(root_dir)/lib -L$(root_dir)/lib -lhiredis -lxml2 -lrt
-UTIL_LIBS=-Wl,-rpath=. $(libutil)
+UTIL_LIBS=$(libutil)
 
 
-SHARE_SRC=base_openvas.c task_openvas.c
+SHARE_SRC=base_openvas.c task_openvas.c comm_misc.c
 SHARE_OBJS=$(SHARE_SRC:%.c=%.o)
 
 PHP_SRC=php_openvas.c 
 PHP_OBJS=$(PHP_SRC:%.c=%.o)
 
-UTIL_SRC=openvas_business.c llist.c openvas_opts.c
+UTIL_SRC=openvas_business.c llist.c openvas_opts.c\
+ hydra_business.c 
 UTIL_OBJS=$(UTIL_SRC:%.c=%.o)
 
-PROG_SRC=main.c
+PROG_SRC=main.c test.c
 PROG_OBJS=$(PROG_SRC:%.c=%.o)
 
 default:$(program) $(libphp)

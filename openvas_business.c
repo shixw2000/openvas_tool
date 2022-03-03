@@ -7,31 +7,49 @@
 #include<sys/file.h> 
 #include<string.h>
 
+#include"comm_misc.h"
 #include"task_openvas.h"
 #include"openvas_business.h"
 #include"openvas_opts.h"
-
+#include"hydra_business.h" 
 
 
 #define REQ_GVM_START_TASK_MARK "<start_task task_id=\"%s\"/>"
 #define REQ_GVM_STOP_TASK_MARK "<stop_task task_id=\"%s\"/>"
 #define REQ_GVM_DELETE_TASK_MARK "<delete_task task_id=\"%s\"/>"
 #define REQ_GVM_DELETE_TARGET_MARK "<delete_target target_id=\"%s\"/>" 
-#define REQ_GVM_CREATE_TASK_MARK "<create_task><name>wEb_%s</name><target id=\"%s\"/>"\
-    "<config id=\"%s\"/></create_task>"
+#define REQ_GVM_CREATE_TASK_MARK "<create_task>"\
+    "<name>wEb_%s</name><target id=\"%s\"/>"\
+    "<config id=\"%s\"/>"\
+    "<preferences>"\
+    "<preference>"\
+    "<scanner_name>auto_delete</scanner_name>"\
+    "<value>keep</value>"\
+    "</preference>"\
+    "<preference>"\
+    "<scanner_name>auto_delete_data</scanner_name>"\
+    "<value>5</value>"\
+    "</preference>"\
+    "</preferences>"\
+    "</create_task>"
 #define REQ_GVM_CREATE_TASK_WITH_SCHEDULE_MARK "<create_task><name>wEb_%s</name><target id=\"%s\"/>"\
-    "<config id=\"%s\"/><schedule id=\"%s\"/></create_task>"
+    "<config id=\"%s\"/><schedule id=\"%s\"/>"\
+    "<preferences>"\
+    "<preference>"\
+    "<scanner_name>auto_delete</scanner_name>"\
+    "<value>keep</value>"\
+    "</preference>"\
+    "<preference>"\
+    "<scanner_name>auto_delete_data</scanner_name>"\
+    "<value>5</value>"\
+    "</preference>"\
+    "</preferences>"\
+    "</create_task>"
 #define REQ_GVM_CREATE_TARGET_MARK "<create_target><name>wEb_%s</name><hosts>%s</hosts><port_list id=\"%s\"/></create_target>"
 #define REQ_GVM_QUERY_REPORT_MARK "<get_reports report_id=\"%s\" details=\"0\"/>"
 #define REQ_GVM_QUERY_TASK_MARK "<get_tasks task_id=\"%s\" details=\"0\" usage_type=\"scan\"/>"
 #define REQ_GVM_QUERY_RESULT_MARK "<get_results task_id=\"%s\" filter=\"report_id=%s levels=hml first=%d rows=%d\"/>"
 
-
-/* attensiont: must not be changed for anything */
-#define TASK_INFO_BEG_MARK "\n==========begin========\n"
-
-/* attensiont: must not be changed for anything */ 
-#define TASK_INFO_END_MARK "\n==========end==========\n"
 
 #define TASK_FILE_FORMAT TASK_INFO_BEG_MARK\
     "task_id=\"%s\"\n"\
@@ -73,13 +91,18 @@ struct gvm_task_handler {
 typedef struct gvm_task_handler* gvm_task_handler_t;
 
 
-#define GVM_TASK_HANDLER(x) { #x OPENVAS_KB_DELIM, daemon_##x }
+#define GVM_TASK_HANDLER(x) { #x, daemon_##x }
 
 static struct gvm_task_handler g_hds[] = {
     GVM_TASK_HANDLER(start_task),
     GVM_TASK_HANDLER(stop_task),
     GVM_TASK_HANDLER(delete_task),
     GVM_TASK_HANDLER(create_task),
+
+    GVM_TASK_HANDLER(start_hydra),
+    GVM_TASK_HANDLER(stop_hydra),
+    GVM_TASK_HANDLER(delete_hydra),
+    GVM_TASK_HANDLER(create_hydra),
 
     {NULL, NULL}
 };
@@ -111,10 +134,13 @@ static int recvKbMsg(kb_t kb, const char* key, kb_buf_t output) {
     return ret;
 }
 
-static int clearKb(kb_t kb) {
+static int clearKb(kb_t kb, const char* msg_queue_name) {
     int ret = 0; 
-
-    ret = kb_del_items(kb, OPENVAS_MSG_NAME);
+    
+    LOG_INFO("clearKb| msg_queue_name=%s| msg=clear the msg queue|", 
+        msg_queue_name); 
+    
+    ret = kb_del_items(kb, msg_queue_name);
 
     return ret;
 }
@@ -167,6 +193,13 @@ int procGvmTask(const char* cmd, kb_buf_t cmdbuf, kb_buf_t output) {
     /* temporary escape xml \" as \\\" */
     left = (int)output->m_capacity;
     output->m_size = escapeXml(cmdbuf->m_buf, output->m_buf, left);
+    if (0 == output->m_size) {
+        LOG_ERROR("proc_gvm| maxlen=%d| req=[%s]|"
+            " error=escapeXml error|", 
+            left, cmdbuf->m_buf);
+
+        return -1;
+    } 
 
     left = (int)cmdbuf->m_capacity;
     cnt = snprintf(cmdbuf->m_buf, left, GVM_CMD_MARK, output->m_buf);
@@ -204,32 +237,72 @@ int procGvmTask(const char* cmd, kb_buf_t cmdbuf, kb_buf_t output) {
     return ret;
 }
 
-static int processMsg(const kb_buf_t inbuf, kb_buf_t tmpbuf, kb_buf_t outbuf) {
+static int processMsg(kb_t kb, const kb_buf_t inbuf, kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
     int size = 0;
+    int isFound = 0;
     const struct gvm_task_handler* phd = NULL;
+    const char* saveptr = NULL;
+    char cmd[MAX_COMM_SIZE] = {0};
+    char uuid[MAX_UUID_SIZE] = {0}; 
+
+    saveptr = inbuf->m_buf; 
+    ret = getNextToken(saveptr, OPENVAS_KB_DELIM, uuid,
+        ARR_SIZE(uuid), &saveptr);
+    if (0 != ret) {
+        LOG_ERROR("%s| input=[%d]%s| msg=parse uuid error|",
+            __FUNCTION__, (int)inbuf->m_size, inbuf->m_buf);
+
+        return GVM_ERR_PARAM_INVALID;
+    }
+    
+    ret = getNextToken(saveptr, OPENVAS_KB_DELIM, cmd,
+        ARR_SIZE(cmd), &saveptr);
+    if (0 != ret) {
+        LOG_ERROR("%s| input=[%d]%s| msg=parse cmd error|",
+            __FUNCTION__, (int)inbuf->m_size, inbuf->m_buf);
+
+        return GVM_ERR_PARAM_INVALID;
+    } 
+
+    ret = chkUuid(uuid);
+    if (0 != ret) {
+        LOG_ERROR("%s| input=[%d]%s| msg=chk uuid error|",
+            __FUNCTION__, (int)inbuf->m_size, inbuf->m_buf);
+
+        return GVM_ERR_PARAM_INVALID;
+    }
 
     for (phd=g_hds; NULL != phd->m_cmd; ++phd) {
         
-        size = (int)strlen(phd->m_cmd);
-        if (0 == strncmp(phd->m_cmd, inbuf->m_buf, size)) {
-            ret = phd->m_cb(&inbuf->m_buf[size], inbuf->m_size - size, tmpbuf, outbuf);
-            if (0 == ret) {
-                LOG_DEBUG("%s| cmd=%s| msg=ok| input=[%d]%s", __FUNCTION__, 
-                    phd->m_cmd, (int)inbuf->m_size, inbuf->m_buf);
-            } else {
-                LOG_ERROR("%s| cmd=%s| error=%d| input=[%d]%s", __FUNCTION__, 
-                    phd->m_cmd, ret,
-                    (int)inbuf->m_size, inbuf->m_buf);
-            }
+        if (0 == strncmp(phd->m_cmd, cmd, ARR_SIZE(cmd))) {
+            isFound = 1;
             
-            return ret;
+            size = strnlen(saveptr, inbuf->m_capacity); 
+            ret = phd->m_cb((char*)saveptr, size, tmpbuf, outbuf); 
+            break;
         }
     }
 
-    LOG_ERROR("%s| invalid cmd| input=[%d]%s|", __FUNCTION__, 
-        (int)inbuf->m_size, inbuf->m_buf);
-    return -1;
+    if (isFound) {
+        if (0 == ret) {
+            LOG_DEBUG("%s| cmd=%s| msg=ok| input=[%d]%s", __FUNCTION__, 
+                phd->m_cmd, (int)inbuf->m_size, inbuf->m_buf);
+        } else {
+            LOG_ERROR("%s| cmd=%s| error=%d| input=[%d]%s", __FUNCTION__, 
+                phd->m_cmd, ret,
+                (int)inbuf->m_size, inbuf->m_buf);
+        }
+    } else { 
+        LOG_ERROR("%s| invalid cmd| input=[%d]%s|", __FUNCTION__, 
+            (int)inbuf->m_size, inbuf->m_buf);
+        
+        ret = GVM_ERR_PARAM_INVALID;
+    } 
+    
+    /* send dealed result to requet task */
+    kb_push_result_ttl(kb, uuid, ret, MAX_REDIS_WAIT_TIMEOUT);
+    return ret;
 }
 
 /* 1: busy, 0: idle, -1: error */
@@ -285,6 +358,11 @@ static void triggerTimerPerMinute(kb_buf_t tmpbuf, kb_buf_t outbuf) {
     }
 }
 
+static void doEveryLoop(kb_buf_t tmpbuf, kb_buf_t outbuf) {
+    monitorHydraTask();
+    
+    triggerTimerPerMinute(tmpbuf, outbuf);
+}
 
 int gvm_start_task(const char* uuid, char report_id[], int maxlen, 
     kb_buf_t tmpbuf, kb_buf_t outbuf) {
@@ -631,7 +709,7 @@ int stopKbMsg() {
 }
 
 /* keep alive */
-int startKbMsg() {
+int startKbMsg(const char* msg_queue_name) {
     int ret = 0;
     int hasMore = 0;
     int timeout = 0;
@@ -653,12 +731,12 @@ int startKbMsg() {
     }
     
     /* first clear old data */
-    clearKb(kb); 
+    clearKb(kb, msg_queue_name); 
     
     while (g_isRun) {
         if (0 >= timeout) {
             /* the msg queue has the first priority to deal with */
-            ret = recvKbMsg(kb, OPENVAS_MSG_NAME, &inbuf);
+            ret = recvKbMsg(kb, msg_queue_name, &inbuf);
 
             /* empty queue */
             if (0 == ret) { 
@@ -676,17 +754,17 @@ int startKbMsg() {
                     g_id = 0;
                 } else {
                     /* more than 60s kb dead, delete old recv queue */
-                    clearKb(kb);
+                    clearKb(kb, msg_queue_name);
                     g_id = 0;
 
                     continue;
                 }
                 
                 /* work here */
-                LOG_DEBUG("key=%s| msg=[%d]%s|", OPENVAS_MSG_NAME, 
+                LOG_DEBUG("msg_queue_name=%s| msg=[%d]%s|", msg_queue_name, 
                     (int)inbuf.m_size, inbuf.m_buf);
                 
-                (void)processMsg(&inbuf, &tmpbuf, &outbuf);
+                (void)processMsg(kb, &inbuf, &tmpbuf, &outbuf);
             } else {
                 /* conn error, then sleep n seconds */
                 timeout = INTERVAL_TIME[g_id];
@@ -700,7 +778,7 @@ int startKbMsg() {
         }
 
         if (g_isRun) {
-            triggerTimerPerMinute(&tmpbuf, &outbuf);
+            doEveryLoop(&tmpbuf, &outbuf);
         }
     }
 
@@ -1079,8 +1157,23 @@ int daemon_delete_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
         } 
 
         /* delete cache and files */ 
-        ret = deleteTaskWhole(g_gvm_data, task, tmpbuf);
-        if (0 != ret) { 
+        ret = g_gvm_data->task_ops->del_task_relation_files(g_gvm_data, task, tmpbuf);
+        if (0 == ret) { 
+            LOG_INFO("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
+                " msg=del task relation files ok|",
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id,
+                task->m_target_info.m_target_id);
+            
+            /* memory free */
+            g_gvm_data->task_ops->free_task(task); 
+        } else {
+            LOG_ERROR("daemon_del_task| name=%s| task_id=%s| target_id=%s|"
+                " msg=delete task relation files error here, and tries again background|",
+                task->m_task_info.m_task_name,
+                task->m_task_info.m_task_id,
+                task->m_target_info.m_target_id);
+                
             setTaskChkType(task, GVM_TASK_CHK_DELETED);
             
             ret = 0;
@@ -1242,7 +1335,7 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
         oldtask = g_gvm_data->task_ops->find_task(g_gvm_data, task);
         if (NULL != oldtask) {
             LOG_ERROR("daemon_create_task| name=%s| group_name=%s| hosts=%s|"
-                " msg=the task already exist|",
+                " msg=the task already exists|",
                 task->m_task_info.m_task_name,
                 task->m_task_info.m_group_name,
                 task->m_target_info.m_hosts);
@@ -1347,8 +1440,9 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
        
         setTaskStatus(task, GVM_TASK_CREATE);
         setTaskChkType(task, GVM_TASK_CHK_TASK);
+        setTaskNextChkTime(task, DEF_TASK_CHK_TIME_INTERVAL[GVM_TASK_CHK_TASK]);
          
-        ret = g_gvm_data->task_ops->add_task(g_gvm_data, task);
+        ret = g_gvm_data->task_ops->write_task_relation_files(g_gvm_data, task, tmpbuf);
         if (0 != ret) {
             LOG_ERROR("daemon_create_task| name=%s| task_id=%s| msg=add task error|",
                 task->m_task_info.m_task_name,
@@ -1358,14 +1452,9 @@ int daemon_create_task(char* input, int inputlen, kb_buf_t tmpbuf, kb_buf_t outb
             break;
         }
 
-        LOG_INFO("daemon_create_task| name=%s| task_id=%s| msg=add task ok|",
-            task->m_task_info.m_task_name,
-            task->m_task_info.m_task_id);
-        
-        g_gvm_data->task_ops->write_task_file(g_gvm_data, tmpbuf); 
-
-        /* reuse the task ptr */
-        addTaskChecks(g_gvm_data, task);
+        LOG_INFO("daemon_create_task| name=%s| task_id=%s| msg=add task ok|", 
+            task->m_task_info.m_task_name, 
+            task->m_task_info.m_task_id); 
 
         /* success here */
         return 0;
@@ -1461,9 +1550,6 @@ static int delGvmTask(GvmDataList_t data, const ListGvmTask_t key) {
         
         /* delete from main queue */
         del_item(&data->m_createque, &task->m_mainlist); 
-
-        /* delete from run queue */
-        del_item(&data->m_runque, &task->m_runlist); 
         
         ret = 0;
     } else { 
@@ -1841,7 +1927,7 @@ static int writeTaskFile(GvmDataList_t data, kb_buf_t buffer) {
     buffer->m_size = 0;
     ret = for_each(&data->m_createque, writeTaskRecord, (void*)buffer);
     if (0 == ret) {
-        ret = writeFile(buffer, normalFile, tmpFile); 
+        ret = writeFileSafe(buffer, normalFile, tmpFile); 
     }
     
     return ret;
@@ -1990,13 +2076,14 @@ static int parseTaskStatusRecord(GvmDataList_t data,
 
 static int readTaskStatusFile(GvmDataList_t data, ListGvmTask_t task) {
     int ret = 0;
-    char normalFile[MAX_FILENAME_PATH_SIZE] = {0};
     struct kb_buf buffer;
-    
-    snprintf(normalFile, MAX_FILENAME_PATH_SIZE, "%s/"DEF_GVM_TASK_STATUS_FILE_PATT,
-        data->m_task_priv_dir, task->m_task_info.m_task_name);
 
-    ret = readTotalFile(normalFile, &buffer);
+    ret = data->task_ops->prepare_paths(data, task);
+    if (0 != ret) {
+        return -1;
+    } 
+
+    ret = readTotalFile(task->m_paths[OPENVAS_STATUS_FILE], &buffer);
     if (0 == ret) {
         /* read data ok */
         ret = parseTaskStatusRecord(data, task, &buffer);
@@ -2034,14 +2121,11 @@ static int readAllTaskStatusRecs(GvmDataList_t data) {
 static int writeTaskStatusFile(GvmDataList_t data, 
     ListGvmTask_t task, kb_buf_t buffer) {
     int ret = 0;
-    char tmpFile[MAX_FILENAME_PATH_SIZE] = {0};
-    char normalFile[MAX_FILENAME_PATH_SIZE] = {0};
 
-    snprintf(tmpFile, MAX_FILENAME_PATH_SIZE, "%s/."DEF_GVM_TASK_STATUS_FILE_PATT,
-            data->m_task_priv_dir, task->m_task_info.m_task_name);
-
-    snprintf(normalFile, MAX_FILENAME_PATH_SIZE, "%s/"DEF_GVM_TASK_STATUS_FILE_PATT,
-        data->m_task_priv_dir, task->m_task_info.m_task_name);
+    ret = data->task_ops->prepare_paths(data, task);
+    if (0 != ret) {
+        return -1;
+    }
 
     buffer->m_size = snprintf(buffer->m_buf, buffer->m_capacity, TASK_STATUS_FILE_FORMAT,
         task->m_task_info.m_task_id,
@@ -2054,25 +2138,74 @@ static int writeTaskStatusFile(GvmDataList_t data,
         task->m_report_info.m_last_report_id, 
         "");
 
-    ret = writeFile(buffer, normalFile, tmpFile);
+    ret = writeFileSafe(buffer, task->m_paths[OPENVAS_STATUS_FILE], 
+        task->m_paths[OPENVAS_STATUS_FILE_TMP]);
     return ret;
 }
 
-int delTaskRelationFiles(GvmDataList_t data, ListGvmTask_t task) {
+int createTaskRelationFiles(GvmDataList_t data, ListGvmTask_t task,
+    kb_buf_t buffer) {
     int ret = 0;
-    char statusFile[MAX_FILENAME_PATH_SIZE] = {0};
-    char resultFile[MAX_FILENAME_PATH_SIZE] = {0};
 
-    snprintf(statusFile, MAX_FILENAME_PATH_SIZE, "%s/"DEF_GVM_TASK_STATUS_FILE_PATT,
-        data->m_task_priv_dir, task->m_task_info.m_task_name);
+    ret = data->task_ops->prepare_paths(data, task);
+    if (0 != ret) {
+        return -1;
+    }
+  
+    /* create task dir */
+    ret = createDir(task->m_paths[OPENVAS_TASK_DIR]);
+    if (0 <= ret) {
+        /* if created, or exists already */
+        ret = 0;
+    } else {
+        return -1;
+    } 
+  
+    ret = data->task_ops->add_task(data, task);
+    if (0 == ret) {
+        ret = data->task_ops->write_task_file(data, buffer);
+        if (0 == ret) {
+            /* start run check */
+            data->task_ops->add_run_task(data, task);
+        } else {
+            /* roll back */
+            data->task_ops->del_task(data, task);
+
+            deleteDir(task->m_paths[OPENVAS_TASK_DIR]);
+        }
+    } else {
+        deleteDir(task->m_paths[OPENVAS_TASK_DIR]);
+    }
     
-    snprintf(resultFile, MAX_FILENAME_PATH_SIZE, "%s/"DEF_GVM_TASK_RESULT_FILE_PATT,
-        data->m_task_priv_dir, task->m_task_info.m_task_name);
+    return ret;
+}
 
-    /* delete status file and result file if exists, */
-    ret = deleteFile(statusFile);
-    ret = deleteFile(resultFile);
-    return 0;
+int delTaskRelationFiles(GvmDataList_t data, ListGvmTask_t task, kb_buf_t buffer) {
+    int ret = 0;
+
+    ret = data->task_ops->prepare_paths(data, task);
+    if (0 != ret) {
+        return -1;
+    }
+
+    /* delete task ok, notify to delete cache */
+    ret = data->task_ops->del_task(data, task);
+    if (0 == ret) {
+        /* update task list */
+        ret = data->task_ops->write_task_file(data, buffer); 
+        if (0 == ret) {
+            data->task_ops->del_run_task(data, task);
+
+            deleteDir(task->m_paths[OPENVAS_TASK_DIR]); 
+        } else {
+            /* roll back */
+            data->task_ops->add_task(data, task);
+        }
+    } else {
+        ret = -1;
+    }
+    
+    return ret;
 }
 
 void setTaskStatus(ListGvmTask_t task, enum GVM_TASK_STATUS status) {
@@ -2157,22 +2290,86 @@ int chkTaskBusy(GvmDataList_t data, ListGvmTask_t task) {
 
 static int writeTaskResult(GvmDataList_t data, ListGvmTask_t task, kb_buf_t outbuf) {
     int ret = 0;
-    char tmpFile[MAX_FILENAME_PATH_SIZE] = {0};
-    char normalFile[MAX_FILENAME_PATH_SIZE] = {0};
 
-    snprintf(tmpFile, MAX_FILENAME_PATH_SIZE, "%s/."DEF_GVM_TASK_RESULT_FILE_PATT,
-            data->m_task_priv_dir, task->m_task_info.m_task_name);
+    ret = data->task_ops->prepare_paths(data, task);
+    if (0 != ret) {
+        return -1;
+    }
 
-    snprintf(normalFile, MAX_FILENAME_PATH_SIZE, "%s/"DEF_GVM_TASK_RESULT_FILE_PATT,
-        data->m_task_priv_dir, task->m_task_info.m_task_name);
-
-    ret = writeFile(outbuf, normalFile, tmpFile);    
+    ret = writeFileSafe(outbuf, task->m_paths[OPENVAS_RESULT_FILE], 
+        task->m_paths[OPENVAS_RESULT_FILE_TMP]);    
     return ret;
 } 
 
 static int getGvmConnStatus(GvmDataList_t data) {
     return data->m_is_gvm_conn_ok;
 }
+
+static int prepareGvmPaths(GvmDataList_t data, ListGvmTask_t task) {
+    int ret = 0;
+    int len = 0;
+
+    do {
+        /* task root dir */
+        len = snprintf(task->m_paths[OPENVAS_TASK_DIR], MAX_FILENAME_PATH_SIZE, 
+            "%s/"DEF_GVM_TASK_DIR_PATT,
+            data->m_task_priv_dir, task->m_task_info.m_task_id);
+        if (0 > len || len >= MAX_FILENAME_PATH_SIZE) {
+            /* path length exceeds max */
+            ret = -1;
+            break;
+        } 
+
+        /* status file */
+        len = snprintf(task->m_paths[OPENVAS_STATUS_FILE], MAX_FILENAME_PATH_SIZE, 
+            "%s/%s",
+            task->m_paths[OPENVAS_TASK_DIR], 
+            DEF_GVM_TASK_STATUS_FILE_PATT);
+        if (0 > len || len >= MAX_FILENAME_PATH_SIZE) {
+            /* path length exceeds max */
+            ret = -1;
+            break;
+        } 
+
+        /* status tmp file */
+        len = snprintf(task->m_paths[OPENVAS_STATUS_FILE_TMP], MAX_FILENAME_PATH_SIZE, 
+            "%s/.%s",
+            task->m_paths[OPENVAS_TASK_DIR], 
+            DEF_GVM_TASK_STATUS_FILE_PATT);
+        if (0 > len || len >= MAX_FILENAME_PATH_SIZE) {
+            /* path length exceeds max */
+            ret = -1;
+            break;
+        }
+
+        /* result file */
+        len = snprintf(task->m_paths[OPENVAS_RESULT_FILE], MAX_FILENAME_PATH_SIZE, 
+            "%s/%s",
+            task->m_paths[OPENVAS_TASK_DIR], 
+            DEF_GVM_TASK_RESULT_FILE_PATT);
+        if (0 > len || len >= MAX_FILENAME_PATH_SIZE) {
+            /* path length exceeds max */
+            ret = -1;
+            break;
+        }
+
+        /* result tmp file */
+        len = snprintf(task->m_paths[OPENVAS_RESULT_FILE_TMP], MAX_FILENAME_PATH_SIZE, 
+            "%s/.%s",
+            task->m_paths[OPENVAS_TASK_DIR], 
+            DEF_GVM_TASK_RESULT_FILE_PATT);
+        if (0 > len || len >= MAX_FILENAME_PATH_SIZE) {
+            /* path length exceeds max */
+            ret = -1;
+            break;
+        }
+
+        ret = 0;
+    } while (0);
+    
+    return ret;
+}
+
 
 static const struct GvmTaskOperation DEFAULT_TASK_OPS = {
     newGvmTask,
@@ -2196,6 +2393,7 @@ static const struct GvmTaskOperation DEFAULT_TASK_OPS = {
 
     writeTaskResult,
 
+    createTaskRelationFiles,
     delTaskRelationFiles,
         
     chkTaskRunning,
@@ -2206,6 +2404,8 @@ static const struct GvmTaskOperation DEFAULT_TASK_OPS = {
     printAllTaskRecs,
 
     getGvmConnStatus,
+
+    prepareGvmPaths,
 };
 
 GvmDataList_t createData() {
@@ -2268,24 +2468,8 @@ static void daemonSignalHandler(int sig) {
 
     /* set default now */
     signal(sig, SIG_DFL);
-}
-
-static int createDir(const char dir[]) {
-    int ret = 0;
-    struct stat buf;
-    
-    ret = stat(dir, &buf);
-    if (0 != ret) {
-        ret = mkdir(dir, 0774);
-        if (0 != ret) {
-            LOG_ERROR("mkdir| dir=%s| msg=mkdir error:%s|",
-                dir, ERRMSG);
-        }
-    }
-
-    return ret;
 } 
-
+  
 static int initLog() { 
     return 0;
 }
@@ -2306,7 +2490,9 @@ static int handleSignal() {
     act.sa_flags = SA_RESTART;
     act.sa_handler = SIG_IGN;
     sigaction(SIGPIPE, &act, NULL);
-    sigaction(SIGCHLD, &act, NULL);
+
+    /* no child here */
+    //sigaction(SIGCHLD, &act, NULL);
 
     return ret;
 }
@@ -2364,6 +2550,10 @@ int getProgPath() {
         return -1;
     }
 } 
+
+const char* progPath() {
+    return g_prog_path;
+}
 
 int isRun() {
     int ret = 0;
@@ -2436,7 +2626,7 @@ int initDaemon() {
     }
 
     do { 
-        ret = createDir(g_gvm_data->m_task_priv_dir);
+        ret = chkExists(g_gvm_data->m_task_priv_dir, 0);
         if (0 != ret) {
             break;
         } 
@@ -2461,6 +2651,8 @@ int initDaemon() {
         /* return ok here */
         return 0;
     } while (0);
+
+    LOG_ERROR("initDaemon| ret=%d| msg=check env parameters error|", ret);
 
     /* return failed here */
     finishData(g_gvm_data);
