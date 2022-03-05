@@ -65,7 +65,7 @@ extern int stopProc(int pid);
 /* return: >0: childpid in parent, =0: in child, -1: error */ 
 extern int forkSafe();
 
-extern int createPidFile(const char path[]);
+extern int createPidFile(const char path[], int pid);
 
 /* only return from parent, cmds run in child and never return 
  * return: >0: child pid in parent,  -1: error */

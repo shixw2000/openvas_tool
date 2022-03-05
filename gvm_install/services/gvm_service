@@ -1,0 +1,23 @@
+#!/bin/bash
+
+[ -e /etc/init.d/vas_functions.sh ] && . /etc/init.d/vas_functions.sh || exit 1
+
+case "$1" in
+start)
+ start_gvm
+;;
+stop)
+ stop_gvm
+;;
+restart)
+ stop_gvm
+ sleep 3
+ start_gvm
+;;
+*)
+echo "Usage: service gvm_service {start|stop|restart}"
+;;
+esac
+
+exit $?
+

@@ -1,0 +1,22 @@
+#!/bin/bash
+
+[ -e /etc/init.d/vas_functions.sh ] && . /etc/init.d/vas_functions.sh || exit 1
+
+case "$1" in
+start)
+ start_redis
+;;
+stop)
+ stop_redis
+;;
+restart)
+ stop_redis
+ sleep 3
+ start_redis
+;;
+*)
+echo "Usage: service redis_service {start|stop|restart}"
+;;
+esac
+
+exit $?

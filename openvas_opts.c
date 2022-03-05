@@ -423,6 +423,7 @@ int gvm_create_schedule(const char* name, enum ICAL_DATE_REP_TYPE type,
 int gvm_option_create_schedule(gvm_task_info_t info,
     kb_buf_t tmpbuf, kb_buf_t outbuf) {
     int ret = 0;
+    int is_once = 0;
     char utc_schedule_time[MAX_TIMESTAMP_SIZE] = {0};
 
     do {
@@ -430,12 +431,15 @@ int gvm_option_create_schedule(gvm_task_info_t info,
         info->m_schedule_created = (unsigned char)0;
         
         if (ICAL_DATE_NONE != info->m_schedule_type) {
+            is_once = (ICAL_DATE_ONCE == info->m_schedule_type);
+            
             ret = local2SchedTime(utc_schedule_time, 
                 ARR_SIZE(utc_schedule_time),
-                info->m_first_schedule_time);
+                info->m_first_schedule_time, is_once);
             if (0 != ret) {
-                LOG_ERROR("option_create_schedule|"
+                LOG_ERROR("option_create_schedule| is_once=%d|"
                     " schedule_time=%s| msg=invalid schedule_time|",
+                    is_once,
                     info->m_first_schedule_time);
 
                 ret = GVM_ERR_PARAM_INVALID; 

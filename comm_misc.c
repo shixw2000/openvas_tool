@@ -744,17 +744,21 @@ int forkSafe() {
     }
 }
 
-int createPidFile(const char path[]) {
+int createPidFile(const char path[], int pid) {
     int ret = 0;
-    int pid = 0;
     struct kb_buf buffer;
     char tmp[MAX_COMM_MIN_SIZE] = {0};
     
     buffer.m_buf = tmp;
     buffer.m_capacity = ARR_SIZE(tmp);
 
-    pid = (int)getpid();
-    buffer.m_size = snprintf(buffer.m_buf, buffer.m_capacity, "%d", pid); 
+    /* write pid */
+    if (0 != pid) {
+        buffer.m_size = snprintf(buffer.m_buf, buffer.m_capacity, "%d", pid); 
+    } else {
+        /* clear pid */
+        buffer.m_size = 0;
+    }
     
     ret = writeFile(&buffer, path);
     return ret;

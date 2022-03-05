@@ -1,0 +1,80 @@
+<!--
+Copyright (C) 2013-2020 Greenbone Networks GmbH
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+-->
+
+<!--
+  This wizard deletes a task as well as the associated target and credentials.
+
+  Required parameters:
+  task_id : The ID of the task to delete.
+  ultimate : Whether to delete ultimately.
+
+  To run this wizard, use the GMP command RUN_WIZARD.
+  Please see the GMP documentation for details.
+ -->
+
+<wizard>
+  <step>
+    <command>
+      <xsl:stylesheet
+          version="1.0"
+          xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+        <xsl:output
+          method="xml"
+          encoding="UTF-8"/>
+        <xsl:template match="/">
+          <get_tasks task_id="{/wizard/params/param[name='task_id']/value}" details="1"></get_tasks>
+        </xsl:template>
+      </xsl:stylesheet>
+    </command>
+  </step>
+  <step>
+    <command>
+      <xsl:stylesheet
+          version="1.0"
+          xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+        <xsl:output
+          method="xml"
+          encoding="UTF-8"/>
+        <xsl:template match="/">
+          <delete_task task_id="{/wizard/params/param[name='task_id']/value}" ultimate="{/wizard/params/param[name='ultimate']/value}" />
+          <get_targets target_id="{/wizard/previous/response/get_tasks_response/task/target/@id}" />
+        </xsl:template>
+      </xsl:stylesheet>
+    </command>
+  </step>
+  <step>
+    <command>
+      <xsl:stylesheet
+          version="1.0"
+          xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+        <xsl:output
+          method="xml"
+          encoding="UTF-8"/>
+        <xsl:template match="/">
+          <xsl:if test="/wizard/previous/response/get_targets_response/target/@id != ''">
+            <delete_target target_id="{/wizard/previous/response/get_targets_response/target/@id}" ultimate="{/wizard/params/param[name='ultimate']/value}" />
+          </xsl:if>
+          <xsl:if test="/wizard/previous/response/get_targets_response/target/ssh_lsc_credential/@id != ''">
+            <delete_credential credential_id="{/wizard/previous/response/get_targets_response/target/ssh_lsc_credential/@id}" ultimate="{/wizard/params/param[name='ultimate']/value}"/>
+          </xsl:if>
+        </xsl:template>
+      </xsl:stylesheet>
+    </command>
+  </step>
+</wizard>

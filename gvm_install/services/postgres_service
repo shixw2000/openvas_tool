@@ -1,0 +1,22 @@
+#!/bin/bash
+
+[ -e /etc/init.d/vas_functions.sh ] && . /etc/init.d/vas_functions.sh || exit 1
+
+case "$1" in
+start)
+ start_pg
+;;
+stop)
+ stop_pg
+;;
+restart)
+ stop_pg
+ sleep 3
+ start_pg
+;;
+*)
+echo "Usage: service postgres_service {start|stop|restart}"
+;;
+esac
+
+exit $?

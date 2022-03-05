@@ -717,16 +717,30 @@ int utc2LocalTime(char local[], int maxlen, const char utc[]) {
     return ret;
 }
 
-int local2SchedTime(char sched[], int maxlen, const char local[]) {
+/* if is_once, then assure to run at least once */
+int local2SchedTime(char sched[], int maxlen, 
+    const char local[], int is_once) {
+    const int DEF_RUN_DELAY_SEC = 100; // 100s later to run
     int ret = 0;
     long long time = 0L;
+    long long curr_time = 0L;
 
     sched[0] = '\0';
     
     /* allow empty local */
     if (NULL != local && '\0' != local[0]) {
         ret = asc2time(&time, local, "%Y-%m-%d %H:%M:%S", 1);
-        if (0 == ret) {
+        if (0 == ret) { 
+            /* need to run at least once */
+            if (is_once) {
+                /* there has 100s for gvm to schedule */
+                curr_time = getTime() + DEF_RUN_DELAY_SEC; 
+                
+                if (time < curr_time) {
+                    time = curr_time;
+                }
+            }
+            
             ret = time2asc(&time, CUSTOM_SCHEDULE_TIME_MARK, sched, maxlen, 0);
         }
     } 

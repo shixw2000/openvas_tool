@@ -1,0 +1,9 @@
+#export LC_ALL= LANG=en_US.UTF-8
+
+gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --migrate
+
+gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --create-user=admin --password=123456
+gvmd_uuid_users=$(gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --get-users --verbose | awk '$1 == "admin" { print $2 }')
+gvmd --db-host=/usr/local/openvas/gvm/run/postgresql --modify-setting 78eceaec-3385-11ea-b237-28d24461215b --value $gvmd_uuid_users
+
+

@@ -1,0 +1,9 @@
+
+createuser -h /usr/local/openvas/gvm/run/postgresql -DRS root
+createdb -h /usr/local/openvas/gvm/run/postgresql -O root gvmd
+
+psql -h /usr/local/openvas/gvm/run/postgresql -c "create role dba with superuser noinherit" gvmd
+psql -h /usr/local/openvas/gvm/run/postgresql -c"grant dba to root" gvmd
+
+psql -h /usr/local/openvas/gvm/run/postgresql -c"create extension \"uuid-ossp\"" gvmd
+psql -h /usr/local/openvas/gvm/run/postgresql -c"create extension \"pgcrypto\"" gvmd

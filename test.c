@@ -297,13 +297,14 @@ void test10() {
 
 void test20() {
     int ret = 0;
+    int is_once = 1;
     char inbuf[MAX_COMM_SIZE] = {0};
     char outbuf[MAX_COMM_SIZE] = {0};
 
     LOG_INFO("test local2SchedTime conversion:\n");
     getLine("input time is:", inbuf); 
 
-    ret = local2SchedTime(outbuf, ARR_SIZE(outbuf), inbuf);
+    ret = local2SchedTime(outbuf, ARR_SIZE(outbuf), inbuf, is_once);
     LOG_INFO("ret=[%d]| out=%s|\n", ret, outbuf);
 }
 

@@ -239,7 +239,10 @@ extern int asc2time(long long* ptime, const char text[],
 extern int getTimeStamp(const long long* time, char psz[], int maxlen);
 extern int nowTimeStamp(char psz[], int maxlen);
 extern int utc2LocalTime(char local[], int maxlen, const char utc[]);
-extern int local2SchedTime(char sched[], int maxlen, const char local[]);
+
+/* if is_once, then assure to run at least once */ 
+extern int local2SchedTime(char sched[], int maxlen, 
+    const char local[], int is_once);
 
 
 #ifdef __cplusplus

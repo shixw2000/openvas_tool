@@ -303,11 +303,13 @@ function print_nvt_config($group_nvt_data) {
 		echo ("==group_id={$group_id}| group_name={$group_info['name']}| group_desc={$group_info['desc']}|==\n");
 		
 			$nvts = $group_info['nvts'];
-			foreach ($nvts as $id => $value) {
-				echo("  id={$value['id']}| name={$value['name']}| oid={$value['oid']}|"
-					."  grade={$value['grade']}|"
-					."  CVE={$value['CVE']}| CNVD={$value['CNVD']}| CNNVD={$value['CNNVD']}|"
-					."  \n");
+			if (!empty($nvts)) {
+				foreach ($nvts as $id => $value) {
+					echo("  id={$value['id']}| name={$value['name']}| oid={$value['oid']}|"
+						."  grade={$value['grade']}|"
+						."  CVE={$value['CVE']}| CNVD={$value['CNVD']}| CNNVD={$value['CNNVD']}|"
+						."  \n");
+				}
 			}
 	}
 }
@@ -326,22 +328,17 @@ function divide_nvt_by_group($nvt_data) {
 	return $group_nvt_data;
 }
 
-function add_group_with_name($group_nvt_data, $group_ctx) {
+function add_group_with_nvts($group_nvt_data, $group_ctx) {
 	$new_group_nvt_data = array();
 	
-	foreach ($group_nvt_data as $group_id => $value) {
-		$item = array();
-		$group_info = $group_ctx[ $group_id ];
+	foreach ($group_ctx as $group_id => $item) {
+		$nvts = $group_nvt_data[ $group_id ];
 		
-		if (!empty($group_info)) {
-			$item['name'] = $group_info['name'];
-			$item['desc'] = $group_info['desc'];
+		if (!empty($nvts)) {
+			$item['nvts'] = $nvts['nvts'];
 		} else {
-			$item['name'] = "group_{$group_id}";
-			$item['desc'] = "group_{$group_id}";
+			$item['nvts'] = NULL;
 		}
-		
-		$item['nvts'] = $value['nvts'];
 		
 		$new_group_nvt_data[$group_id] = $item;
 	}
@@ -356,7 +353,7 @@ function parse_nvt_config($nvt_filepath, $group_file, $plugin_dir) {
 	$new_nvt_data = add_nvt_with_nasl($nvt_data, $plugin_dir);
 	
 	$group_nvt_data = divide_nvt_by_group($new_nvt_data);
-	$new_group_nvt_data = add_group_with_name($group_nvt_data, $group_ctx);
+	$new_group_nvt_data = add_group_with_nvts($group_nvt_data, $group_ctx);
 	
 	return $new_group_nvt_data;
 }
@@ -384,13 +381,15 @@ function write_nvt_config($group_nvt_data, $basedir) {
 			  . "  </preferences>\n"
 			  . "  <nvt_selectors>\n");
 			
-			foreach ($nvts as $id => $value) {
-				fwrite($file, 
-					"    <nvt_selector>\n"
-				  . "      <include>1</include>\n"
-				  . "      <type>2</type>\n"
-				  . "      <family_or_nvt>{$value['oid']}</family_or_nvt>\n"
-				  . "    </nvt_selector>\n");
+			if (!empty($nvts)) {
+				foreach ($nvts as $id => $value) {
+					fwrite($file, 
+						"    <nvt_selector>\n"
+					  . "      <include>1</include>\n"
+					  . "      <type>2</type>\n"
+					  . "      <family_or_nvt>{$value['oid']}</family_or_nvt>\n"
+					  . "    </nvt_selector>\n");
+				}
 			}
 			
 			fwrite($file, 
@@ -442,9 +441,9 @@ function get_gvm_schedule_name($schedule_type) {
 	}
 }
 
-function read_gvm_task_status_file($dir, $taskname, $uuid) {
+function read_gvm_task_status_file($dir, $uuid) {
 	$data = array();
-	$filepath = $dir . '/task_' . $taskname;
+	$filepath = $dir . '/task_' . $uuid . '/gvm_status_file';
 	
 	if (is_file($filepath)) {
 		$file = fopen($filepath, "r");
@@ -510,11 +509,11 @@ function getNvtInfoById($id) {
 	}
 }
 
-function readNvtResult($dir, $taskname) {
+function readNvtResult($dir, $uuid) {
 	$res = '';
 	$cnt = 0;
 	
-	$filepath = $dir . '/result_' . $taskname;
+	$filepath = $dir . '/task_' . $uuid . '/gvm_result_file';
 	
 	if (is_file($filepath)) {
 		$file = fopen($filepath, "r");
@@ -564,7 +563,7 @@ function read_gvm_tasks($dir, $taskfile) {
 					$task_name=$matchs[1];
 				}
 				
-				if(preg_match('/\ngroup_id=\"([0-9]+)\"\n/',$content,$matchs)) {
+				if(preg_match('/\ngroup_id=\"(.*)\"\n/',$content,$matchs)) {
 					$group_id=$matchs[1];
 				}
 				
@@ -611,15 +610,15 @@ function read_gvm_tasks($dir, $taskfile) {
 				
 				$task['create_time'] = $create_time;
 				
-				$task['chedule_type_name'] = get_gvm_schedule_name($schedule_type);
+				$task['schedule_type_name'] = get_gvm_schedule_name($schedule_type);
 				
 				/* get status and fill */
-				$statusItem = read_gvm_task_status_file($dir, $task_name, $task_id);
+				$statusItem = read_gvm_task_status_file($dir, $task_id);
 				$task['status'] = $statusItem['status'];
 				$task['progress'] = $statusItem['progress'];
 				$task['report_id'] = $statusItem['report_id'];
 				
-				$nvt_res = readNvtResult($dir, $task_name);
+				$nvt_res = readNvtResult($dir, $task_id);
 				$task['result'] = $nvt_res;
 				
 				$task['status_name'] = get_gvm_run_status_name( $task['status'] );
@@ -690,13 +689,14 @@ function read_gvm_task_group($dir) {
 	$item['group_id'] = '0';
 	$item['group_name'] = '所有漏洞';
 	
-	$data[ '0' ] = $item;
+	$config_id = $item['config_id'];
+	$data[ $config_id ] = $item;
 	return $data;
 }
 
 function print_gvm_task_group($gvm_task_group) {
-	foreach($gvm_task_group as $group_id => $group_info) {
-		echo ("group_id={$group_id}| group_name={$group_info['group_name']}| config_id={$group_info['config_id']}|\n");	
+	foreach($gvm_task_group as $config_id => $group_info) {
+		echo ("group_id={$group_info['group_id']}| group_name={$group_info['group_name']}| config_id={$config_id}|\n");	
 	}
 }
 
@@ -726,7 +726,18 @@ function index_data($data) {
 }
 
 function getResult($retcode) {
-	$results = array("0"=>"操作成功", "-1"=>"操作失败", "1"=>"参数无效");
+	$results = array("0"=>"操作成功",
+	"-1"=>"操作失败", 
+	"1"=>"参数无效",
+	"2"=>"内部错误",
+	"3"=>"超时错误",
+	"4"=>"任务不存在",
+	"5"=>"任务名重复",
+	"6"=>"任务运行中，禁止操作",
+	"7"=>"任务已经停止",
+	"8"=>"服务器错误",
+	"9"=>"连接错误",
+	);
 	
 	if (array_key_exists("{$retcode}", $results)) {
 		return $results[ "{$retcode}" ];
@@ -742,6 +753,133 @@ function call_c_func($cmd, $param) {
 	#echo ("end:call_c_func[{$cmd}]:{$param}:{$retmsg}|\n");
 	
 	return $retmsg;
+}
+
+function read_hydra_task_status($dir, $uuid) {
+	$data = array();
+	$filepath = $dir . '/task_' . $uuid . '/hydra_task_proc.pid';
+	
+	if (is_file($filepath)) {
+		
+		if (0 == filesize($filepath)) {
+			$data['status'] = 4;
+		} else {
+			$file = fopen($filepath, "r");
+			$ctx = fread($file, filesize($filepath));
+			fclose($file);
+			
+			if (-1 != (int)$ctx) {
+				$data['status'] = 3;
+			} else {
+				$data['status'] = 6;
+			}
+		}
+	} else {
+		$data['status'] = 1;
+	}
+	
+	return $data;
+}
+
+function read_hydra_task($dir, $taskfile) {
+	$data = array();
+	
+	$filepath = $dir . '/' . $taskfile;
+	if (is_file($filepath)) {
+		$file = fopen($filepath, "r");
+		$ctx = fread($file, filesize($filepath));
+        fclose($file);
+
+		$keywords = preg_split('/\n==========end==========\n/', $ctx);
+		
+		foreach ($keywords as $content) {
+			
+			if(preg_match('/\ntask_id=\"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\"\n/',$content,$matchs)) {
+				$task_id=$matchs[1];
+				
+				if(preg_match('/\ntask_name=\"(.*)\"\n/',$content,$matchs)) {
+					$task_name=$matchs[1];
+				}
+				
+				if(preg_match('/\nhosts_type=\"(.*)\"\n/',$content,$matchs)) {
+					$hosts_type=$matchs[1];
+				}
+				
+				if(preg_match('/\nhosts=\"(.*)\"\n/',$content,$matchs)) {
+					$hosts=$matchs[1];
+				}
+				
+				
+				if(preg_match('/\nservices=\"(.*)\"\n/',$content,$matchs)) {
+					$services=$matchs[1];
+				}
+				
+				if(preg_match('/\nopts=\"(.*)\"\n/',$content,$matchs)) {
+					$opts=$matchs[1];
+				}
+				
+				if(preg_match('/\nschedule_type=\"(.*)\"\n/',$content,$matchs)) {
+					$schedule_type=$matchs[1];
+				}
+				
+				if(preg_match('/\nschedule_time=\"(.*)\"\n/',$content,$matchs)) {
+					$schedule_time=$matchs[1];
+				}
+				
+				if(preg_match('/\nschedule_list=\"(.*)\"\n/',$content,$matchs)) {
+					$schedule_list=$matchs[1];
+				}
+				
+				if(preg_match('/\ncreate_time=\"(.*)\"\n/',$content,$matchs)) {
+					$create_time=$matchs[1];
+				}
+				
+				$task=array();
+				$task['task_id'] = $task_id;
+				$task['task_name'] = $task_name;
+				$task['hosts_type'] = $hosts_type;
+				$task['hosts'] = $hosts;
+				$task['services'] = $services;
+				$task['opts'] = $opts;
+				
+				$task['schedule_type'] = $schedule_type;
+				$task['schedule_time'] = $schedule_time;
+				$task['schedule_list'] = $schedule_list;
+				$task['schedule_type_name'] = get_gvm_schedule_name($schedule_type);
+				
+				$task['create_time'] = $create_time;
+				
+				$statusItem = read_hydra_task_status($dir, $task_id);
+				$task['status'] = $statusItem['status'];
+				
+				$task['status_name'] = get_gvm_run_status_name( $task['status'] );
+				
+				$hydra_res = '';
+				$task['result'] = $hydra_res;
+				
+				$data[$task_name] = $task;
+			} 
+		}
+	}
+	
+	return $data;
+}
+
+function print_hydra_task_info($hydra_task) {
+	
+	foreach($hydra_task as $task_name => $task_info) {
+		echo ("task_name={$task_info['task_name']}| task_id={$task_info['task_id']}|"
+			. " hosts_type={$task_info['hosts_type']}| hosts={$task_info['hosts']}|"
+			. " services={$task_info['services']}| opts={$task_info['opts']}|"
+			
+			. " status={$task_info['status_name']}| "
+			. " schedule_type_name={$task_info['schedule_type_name']}|"
+			. " schedule_time={$task_info['schedule_time']}|"
+			. " schedule_list={$task_info['schedule_list']}|"
+			. " result={$task_info['result']}|"
+			. " create_time={$task_info['create_time']}|"
+			. "\n");	
+	}
 }
 
 ##########
@@ -808,8 +946,16 @@ function deleteTask($taskname, $taskid, $targetid) {
 #$gvm_task=read_gvm_tasks($gvm_task_priv_dir, $gvm_task_file_name);
 #print_gvm_task_info($gvm_task);
 
-#$nvt_res = readNvtResult($gvm_task_priv_dir, 'test_172.16.13.3');
+#$nvt_res = readNvtResult($gvm_task_priv_dir, '483991ae-be60-4a0e-a6a3-803cc9dce6d4');
 #echo ("{$nvt_res}");
+
+#hydra tasks info
+#echo ("=============begin==========\n");
+#$hydra_task_priv_dir="/usr/local/openvas/gvm/var/hydra";
+#$hydra_task_file_name="hydra_task_file";
+#$hydra_task=read_hydra_task($hydra_task_priv_dir, $hydra_task_file_name);
+#print_hydra_task_info($hydra_task);
+#echo ("=============end==========\n");
 
 #$cmd="start_task";
 #$taskname="shixw_000";

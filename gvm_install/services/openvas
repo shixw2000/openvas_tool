@@ -1,0 +1,45 @@
+#!/bin/bash
+
+[ -e /etc/init.d/vas_functions.sh ] && . /etc/init.d/vas_functions.sh || exit 1
+
+function start_all() {
+ start_redis
+ sleep 1
+ 
+ start_pg
+ sleep 1
+ 
+ start_gvm
+ sleep 1
+}
+
+function stop_all() {
+ stop_gvm
+ sleep 1
+ 
+ stop_pg
+ sleep 1
+
+ stop_redis
+ sleep 1
+}
+
+case "$1" in
+start)
+ start_all
+;;
+stop)
+ #stop_all
+;;
+restart)
+ stop_all
+ sleep 3
+ start_all
+;;
+*)
+echo "Usage: $0 {start|stop|restart}"
+;;
+esac
+
+exit $?
+

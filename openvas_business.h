@@ -121,11 +121,11 @@ typedef struct ListGvmTask* ListGvmTask_t;
 struct ResultNvtInfo {
     char res_id[MAX_UUID_SIZE];
     char res_name[MAX_NVT_NAME_SIZE];
-    char res_host[MAX_HOSTS_SIZE];
+    char res_host[MAX_COMM_SIZE];
+    char res_port[MAX_COMM_SIZE];
     char res_threat[MAX_COMM_MIN_SIZE];
     char res_severity[MAX_COMM_MIN_SIZE];
     char res_create_time[MAX_TIMESTAMP_SIZE];
-    char res_port[MAX_COMM_MIN_SIZE];
     char res_cve[MAX_COMM_MIN_SIZE];
 };
 

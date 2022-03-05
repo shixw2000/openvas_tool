@@ -1796,6 +1796,7 @@ static int handleChildSignal() {
 
 static int onStartTask() {
     int ret = 0;
+    int pid = 0;
 
     do {
         setProcTitle(g_curr_task->m_task_id); 
@@ -1814,9 +1815,11 @@ static int onStartTask() {
         }
         
         handleChildSignal(); 
+
+        pid = (int)getpid();
         
         /* create a pid file while running */
-        ret = createPidFile(g_curr_task->m_paths[HYDRA_TASK_GRP_PID_FILE]);
+        ret = createPidFile(g_curr_task->m_paths[HYDRA_TASK_GRP_PID_FILE], pid);
         if (0 != ret) {
             break;
         }
@@ -1831,8 +1834,14 @@ static int onEndTask() {
     if (NULL != g_curr_task) {
         /* kill the child execv process here if alive */
         killProc(g_curr_task->m_pid);
-        
-        ret = deleteFile(g_curr_task->m_paths[HYDRA_TASK_GRP_PID_FILE]); 
+
+        if (!g_has_stop_task) {
+            /* normal completed */
+            createPidFile(g_curr_task->m_paths[HYDRA_TASK_GRP_PID_FILE], 0); 
+        } else {
+            /* stop task, use -1 as marked */
+            createPidFile(g_curr_task->m_paths[HYDRA_TASK_GRP_PID_FILE], -1);
+        }
     }
     
     return ret;
